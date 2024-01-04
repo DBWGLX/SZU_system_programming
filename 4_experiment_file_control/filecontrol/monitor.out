@@ -1,0 +1,17 @@
+Cannot stat myFile.txt 
+ADDED tmp/b   size 0 bytes, mod. time = Thu Dec 21 19:27:47 2023
+Cannot stat myFile.txt 
+Cannot stat myFile.txt 
+Cannot stat myFile.txt 
+Cannot stat myFile.txt 
+Cannot stat myFile.txt 
+Cannot stat myFile.txt 
+ADDED tmp/a   size 0 bytes, mod. time = Thu Dec 21 20:35:11 2023
+Cannot stat myFile.txt 
+CHANGEDtmp/a   size 9 bytes, mod. time = Thu Dec 21 20:35:14 2023
+Cannot stat myFile.txt 
+Cannot stat myFile.txt 
+Cannot stat myFile.txt 
+ADDED myFile.txt   size 0 bytes, mod. time = Thu Dec 21 20:35:21 2023
+CHANGEDmyFile.txt   size 14 bytes, mod. time = Thu Dec 21 20:35:27 2023
+DELETED tmp/a
