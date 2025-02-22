@@ -1,6 +1,6 @@
 #include "info.h"
 #include "ThreadPool.h"
-
+#include <sys/epoll.h>
 
 //已注册的数据：（非持久化）
 CLIENTINFO cookies[150];
@@ -20,6 +20,8 @@ CLIENTINFO info;
 char buffer[150];
 int maxFd;
 int online_num = 0;
+
+int epollFd;
 
 class Task1 : public Task {
 public:
@@ -153,7 +155,8 @@ public:
             //发送
             for(int i=0;i<cookiesNum;i++){
                 printf("#### online information is sent to %s\n",cookies[i].name);
-                fdl = open(cookies[i].myfifo, O_WRONLY);
+                string tmpstr = string(cookies[i].myfifo)+"/chat";
+                fdl = open(tmpstr.c_str(), O_WRONLY);
                 if(fdl == -1){
                     printf("!!!! fail to send to %s : open fifo failed!\n",cookies[i].name);
                     continue;
@@ -294,30 +297,8 @@ public:
     }
 };
 
-int main(){
-
-    printf("#### Welcome to use the chatting server.The server will run.\n");
-    printf("#### The writer is DBWGLX.Learn more in https://github.com/lubenweiNBNBNBNB. Thank you!🤓❤️\n");
-
-    pid_t pid;
-    pid = fork();
-    if (pid < 0) {  perror("Fork failed");fflush(NULL);exit(1);}
-    if (pid > 0) {  exit(0); }
- 
-
-    // 守护进程 ：创建新会话并成为会话首进程
-    if (setsid() < 0) {
-        perror("setsid error");
-        exit(1);
-    }
-
-    // 改变工作目录
-    // if (chdir("/") < 0) {
-    //     perror("chdir error");
-    //     exit(1);
-    // }
-
-    //建立日志文件
+void init(){
+        //建立日志文件
     int file = open(LOG_TXT,O_WRONLY | O_CREAT | O_APPEND, 0644);//LOG_TXT 宏，替换的是路径字符串
     if(file == -1)
     {
@@ -413,40 +394,94 @@ int main(){
         exit(EXIT_FAILURE);
     }
 
-    //maxFd = max( max( max(fifo_fd1,fifo_fd2) , fifo_fd3 ), fifo_fd4 ) + 1;
     maxFd = max({fifo_fd1,fifo_fd2,fifo_fd3,fifo_fd4})+1;
 
-    //ThreadPool,runs!!
-    ThreadPool threadpool;
-
-    while(1)
-    {
-        fd_set readFds;
-        FD_ZERO(&readFds);
-        FD_SET(fifo_fd1, &readFds);
-        FD_SET(fifo_fd2, &readFds);
-        FD_SET(fifo_fd3, &readFds);
-        FD_SET(fifo_fd4, &readFds);
-        
-        int readyFdCount = select(maxFd, &readFds, nullptr, nullptr, nullptr);
-        if (readyFdCount == -1) {printTime();printf("select() 错误\n");break;}
-
-        if(FD_ISSET(fifo_fd1,&readFds)){
-            threadpool.enqueue(new Task1());
-        }
-        if(FD_ISSET(fifo_fd2,&readFds)){
-            threadpool.enqueue(new Task2());
-        }
-        if(FD_ISSET(fifo_fd3,&readFds)){
-            threadpool.enqueue(new Task3());
-        }
-
-        if(FD_ISSET(fifo_fd4,&readFds)){
-            threadpool.enqueue(new Task4());
-        }
-
-        fflush(NULL);
+    //Epoll
+    epollFd = epoll_create1(0);
+    if(epollFd == -1){
+        printTime();
+        printf("epoll_create1() 错误\n");
+        exit(1);
     }
-    exit(0);
+
+    //文件描述符设置为非阻塞模式
+    fcntl(fifo_fd1, F_SETFL, O_NONBLOCK);
+    fcntl(fifo_fd2, F_SETFL, O_NONBLOCK);
+    fcntl(fifo_fd3, F_SETFL, O_NONBLOCK);
+    fcntl(fifo_fd4, F_SETFL, O_NONBLOCK);
+
+    struct epoll_event ev1,ev2,ev3,ev4;
+    ev1.events = EPOLLIN;
+    ev1.data.fd = fifo_fd1;
+    epoll_ctl(epollFd, EPOLL_CTL_ADD, fifo_fd1, &ev1);
+
+    ev2.events = EPOLLIN;
+    ev2.data.fd = fifo_fd2;
+    epoll_ctl(epollFd, EPOLL_CTL_ADD, fifo_fd2, &ev2);
+
+    ev3.events = EPOLLIN;
+    ev3.data.fd = fifo_fd3;
+    epoll_ctl(epollFd, EPOLL_CTL_ADD, fifo_fd3, &ev3);
+
+    ev4.events = EPOLLIN;
+    ev4.data.fd = fifo_fd4;
+    epoll_ctl(epollFd, EPOLL_CTL_ADD, fifo_fd4, &ev4);
+}
+
+int main(){
+
+    printf("#### Welcome to use the chatting server.The server will run.\n");
+    printf("#### The writer is DBWGLX.Learn more in https://github.com/lubenweiNBNBNBNB. Thank you!🤓❤️\n");
+
+    pid_t pid;
+    pid = fork();
+    if (pid < 0) {  perror("Fork failed");fflush(NULL);exit(1);}
+    if (pid > 0) {  exit(0); }
+ 
+
+    // 守护进程 ：创建新会话并成为会话首进程
+    if (setsid() < 0) {
+        perror("setsid error");
+        exit(1);
+    }
+
+    // 改变工作目录
+    // if (chdir("/") < 0) {
+    //     perror("chdir error");
+    //     exit(1);
+    // }
+
+    init();
+    //线程池
+    ThreadPool threadpool;
+    while(true)
+    {
+        struct epoll_event events[4];
+        int readyFdCount = epoll_wait(epollFd, events, 4, -1);
+        if(readyFdCount == -1){
+            printTime();
+            printf("epoll_wait() 错误\n");
+            break;
+        }
+
+        for(int i=0;i<readyFdCount;i++){
+            if(events[i].data.fd == fifo_fd1){
+                threadpool.enqueue(new Task1());
+            }else if(events[i].data.fd == fifo_fd2){
+                threadpool.enqueue(new Task2());
+            }else if(events[i].data.fd == fifo_fd3){
+                threadpool.enqueue(new Task3());
+            }else if(events[i].data.fd == fifo_fd4){
+                threadpool.enqueue(new Task4());
+            }
+        }
+
+
+    }
+    //及时刷新日志
+    fflush(NULL);
+
+    close(epollFd);
+    return 0;
 }
 

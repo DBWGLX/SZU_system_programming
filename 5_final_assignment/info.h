@@ -16,7 +16,6 @@
 #include <signal.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/select.h>
 #include <algorithm>
 #include <iostream>
 using namespace std;
@@ -39,11 +38,11 @@ using namespace std;
 
 //数据包格式
 typedef struct {
-        char name[150];    /*client's FIFO name */
-        char password[150];
-        char myfifo[150];
-        char touser[150];
-        char context[150];
+        char name[32];    /*client's FIFO name */
+        char password[32];
+        char myfifo[64];//现为管道路径
+        char touser[32];
+        char context[256];
 }CLIENTINFO, * CLIENTINFOPTR;
 
 void printTime()
