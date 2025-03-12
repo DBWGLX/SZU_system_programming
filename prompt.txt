@@ -1,0 +1,8 @@
+# MySQL驱动
+[root@CentOS-DBWGLX 5_final_assignment]# find / -name "mysql_driver.h"
+/usr/include/mysql-cppconn/jdbc/mysql_driver.h
+
+# json jansson库
+-ljansson
+
+g++ test.cc MySQLConnectionPool.hpp -std=c++17 -I/usr/include/mysql-cppconn/jdbc -lmysqlcppconn -pthread -L /root/work/EpollChatServer/cmake_out/lib -lasync_logger -ljansson -o test.out 

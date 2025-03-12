@@ -24,14 +24,14 @@ public:
     }
     std::shared_ptr<sql::Connection> getConnection(){
         std::lock_guard<std::mutex> lock(_pool_mutex_o);
+
         if(!_connection_pool.empty()){
             std::shared_ptr<sql::Connection> conn = _connection_pool.front();
             _connection_pool.pop();
             return conn;
         }else{
             _pool_size++;
-            std::cerr<<"【】Connection pool is empty, creating a new connection! Now _pool_size: " 
-                <<  _pool_size <<std::endl;
+            //std::cerr<<"【】Connection pool is empty, creating a new connection! Now _pool_size: " <<  _pool_size <<std::endl;
             return createConnection();
         }
     }

@@ -1,5 +1,0 @@
-# MySQL驱动
-[root@CentOS-DBWGLX 5_final_assignment]# find / -name "mysql_driver.h"
-/usr/include/mysql-cppconn/jdbc/mysql_driver.h
-
-g++ -I/usr/include/mysql-cppconn/jdbc test.cc MySQLConnectionPool.hpp -o test.out -std=c++11 -lmysqlcppconn

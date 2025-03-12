@@ -1,13 +1,13 @@
 #pragma once
 #include <bits/stdc++.h>
 using namespace std;
+
 #define POOLSIZE 4
 
 class Task {
 public:
     virtual void execute() = 0;
 };
-
 // class Task1 : public Task {
 // public:
 //     void execute() override {
@@ -22,11 +22,11 @@ public:
     void enqueue(Task* task);
 
 private:
-    static void* worker(void*arg);
+    static void* worker(void*arg); //线程方法
     std::vector<pthread_t> workers;
-    std::queue<Task*> tasks;
     pthread_mutex_t queueMutex;
     pthread_cond_t condition;
+    std::queue<Task*> tasks;//方法任务队列
     bool stop;
 };
 
