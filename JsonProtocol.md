@@ -22,11 +22,22 @@ token：
 
 ### 不同报文类型
 
+#### 0.回应报文
+
+```
+{
+    "type": 0,
+    "sequence": 1000,
+    "status": "ACK" / "TIME_OUT"
+}
+```
+
 #### 1.注册报文
 
 ```
 {
     "type": 1,
+    "sequence": 1000,
     "account": "test_account",
     "password": "test_password",
     "username": "Test User",
@@ -40,17 +51,19 @@ token：
 ```
 {
     "type": 2,
+    "sequence": 1000,
     "account": "test_account",
     "password": "test_password"
 }
 ```
 返回一个token令牌
 
-#### 3.获取在线人数报文
+#### 3.获取在线人员
 
 ```
 {
     "type": 3,
+    "sequence": 1000,
     "account": "test_account",
     "token": "valid_token"
 }
@@ -61,9 +74,10 @@ token：
 ```
 {
     "type": 4,
+    "sequence": 1000,
     "account": "sender_account",
     "token": "valid_token",
-    "receiver_account": "receiver_account",
+    "receiver_username": "receiver_username",
     "message": "Hello, how are you?"
 }
 ```
@@ -73,6 +87,7 @@ token：
 ```
 {
     "type": 5,
+    "sequence": 1000,
     "account": "test_account",
     "token": "valid_token"
 }
@@ -83,6 +98,7 @@ token：
 ```
 {
     "type": 6,
+    "sequence": 1000,
     "account": "test_account",
     "token": "valid_token",
     "phone_number": "13987654321",

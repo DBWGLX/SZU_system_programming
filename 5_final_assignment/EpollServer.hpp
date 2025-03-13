@@ -13,6 +13,7 @@
 #include "MySQLConnectionPool.hpp"
 #include "DBOperation.hpp"
 #include "User.hpp"
+#include "LRUTokenManager.hpp"
 
 {//密码加密处理
     // 生成随机盐
@@ -97,7 +98,24 @@ private:
                 break;
         }
     }
-
+    //发送处理结果
+    void sendResult(int result) {
+        std::string response = "{\"result\":" + std::to_string(result) + "}";
+        send(clientFd, response.c_str(), response.size(), 0);
+    }
+    //3.发送在线用户名称
+    void sendOnlineUsers(const std::vector<std::string>& users) {
+        json_t *response = json_array();
+        for (const auto& user : users) {
+            json_array_append_new(response, json_string(user.c_str()));
+        }
+        char *responseStr = json_dumps(response, 0);
+        if (responseStr) {
+            send(clientFd, responseStr, strlen(responseStr), 0);
+            free(responseStr);
+        }
+        json_decref(response);
+    }
     void handleType1(json_t *root) {
         // 解析 account 字段
         json_t *account_json = json_object_get(root, "account");
@@ -144,7 +162,6 @@ private:
         int res = dbop->addUser(user);
         sendResult(res);
     }
-
     void handleType2(json_t *root) {
         // 解析 account 字段
         json_t *account_json = json_object_get(root, "account");
@@ -169,6 +186,100 @@ private:
         else
             sendResult(-1);
     }
+    void handleType3(json_t *root){
+        json_t *account_json = json_object_get(root, "account");
+        if (!json_is_string(account_json)) {
+            std::cerr << "Invalid 'account' field in JSON" << std::endl;
+            sendResult(-10);
+            return;
+        }
+        const char *account = json_string_value(account_json);
+        // 解析 token 字段
+        json_t *token_json = json_object_get(root, "token");
+        if (!json_is_string(token_json)) {
+            std::cerr << "Invalid 'token' field in JSON" << std::endl;
+            sendResult(-10);
+            return;
+        }
+        const char *token = json_string_value(token_json);
+        // 验证 token
+        if (!tokenManager.verifyToken(account, token)) {
+            std::cerr << "Invalid or expired token" << std::endl;
+            sendResult(-11);
+            return;
+        }
+        // 获取在线用户列表
+        std::vector<std::string> users = tokenManager.getAllUsers();
+        sendOnlineUsers(users);
+    }
+    void handleType4(json_t *root){
+        json_t *account_json = json_object_get(root, "account");
+        if (!json_is_string(account_json)) {
+            std::cerr << "Invalid 'account' field in JSON" << std::endl;
+            sendResult(-10);
+            return;
+        }
+        const char *account = json_string_value(account_json);
+        // 解析 token 字段
+        json_t *token_json = json_object_get(root, "token");
+        if (!json_is_string(token_json)) {
+            std::cerr << "Invalid 'token' field in JSON" << std::endl;
+            sendResult(-10);
+            return;
+        }
+        const char *token = json_string_value(token_json);
+        // 验证 token
+        if (!tokenManager.verifyToken(account, token)) {
+            std::cerr << "Invalid or expired token" << std::endl;
+            sendResult(-11);
+            return;
+        }
+        // 解析 receiver_username 字段
+        json_t *receiver_json = json_object_get(root, "receiver_username");
+        if (!json_is_string(receiver_json)) {
+            std::cerr << "Invalid 'receiver_username' field in JSON" << std::endl;
+            sendResult(-10);
+            return;
+        }
+        const char *receiver = json_string_value(receiver_json);
+        // 解析 message 字段
+        json_t *message_json = json_object_get(root, "message");
+        if (!json_is_string(message_json)) {
+            std::cerr << "Invalid 'message' field in JSON" << std::endl;
+            sendResult(-10);
+            return;
+        }
+        const char *message = json_string_value(message_json);
+        // 获取接收者的文件描述符
+        int receiver_fd = tokenManager.getUserFd(receiver);
+        if (receiver_fd == -1) {
+            std::cerr << "Receiver not online" << std::endl;
+            sendResult(-12);
+            return;
+        }
+        // 构造消息并发送
+        std::string msg = "{\"sender\":\"" + std::string(account) + "\",\"message\":\"" + std::string(message) + "\"}";
+        ssize_t bytes_sent = send(receiver_fd, msg.c_str(), msg.size(), 0);
+        if (bytes_sent == -1) {
+            std::cerr << "Failed to send message" << std::endl;
+            sendResult(-13);  // 发送失败
+            return;
+        }
+
+        // 等待接收确认
+        std::string ack;
+        if (receiveAcknowledgment(receiver_fd, ack)) {
+            if (ack == "ACK") {
+                sendResult(0);  // 成功
+            } else {
+                std::cerr << "Receiver did not acknowledge the message" << std::endl;
+                sendResult(-14);  // 未收到确认
+            }
+        } else {
+            std::cerr << "Failed to receive acknowledgment" << std::endl;
+            sendResult(-15);  // 接收确认失败
+        }
+    }
 
     void freeFd(){
         epoll_event event;
@@ -177,7 +288,6 @@ private:
         }
         close(_clientFd);
     }
-
     int _clientFd;
     int _epollFd;
     DBOperation* _dbopPtr;
@@ -272,4 +382,5 @@ private:
     std::unique_ptr<ThreadPool> threadPool;
     MySQLConnectionPool mysqlPool;
     DBOperation dbop;
+    LRUTokenManager lruTM;
 };
