@@ -44,6 +44,7 @@ token：
     "password": "test_password"
 }
 ```
+返回一个token令牌
 
 #### 3.获取在线人数报文
 

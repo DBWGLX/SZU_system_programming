@@ -11,6 +11,8 @@ CREATE TABLE users (
     account VARCHAR(50) NOT NULL UNIQUE COMMENT '用户用于登录的账号，必须唯一',
     -- 用户密码，非空
     password VARCHAR(255) NOT NULL COMMENT '用户登录时使用的密码',
+    -- 盐值，非空
+    salt VARCHAR(255) NOT NULL COMMENT '用于加密密码的随机盐值',
     -- 用户姓名，唯一，非空
     username VARCHAR(50) NOT NULL UNIQUE COMMENT '用户的真实姓名或昵称',
     -- 用户手机号，唯一，可空

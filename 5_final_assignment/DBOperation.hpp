@@ -1,6 +1,10 @@
 #pragma once
-
-#include <sstream>
+#include <iostream>
+#include <iomanip>
+#include <sstream>      // 用于 std::ostringstream
+#include <stdexcept>    // 用于 std::runtime_error
+#include <openssl/evp.h>
+#include <openssl/rand.h>
 #include "MySQLConnectionPool.hpp"
 #include "User.hpp"
 #include "Logger.hpp"
@@ -13,14 +17,19 @@ public:
     int addUser(const User& new_user){
         try {
             auto conn = pool->getConnection();
-            std::string sqlSentence = "INSERT INTO users (account, password, username, phone_number, email) VALUES (?, ?, ?, ?, ?)";
+            std::string sqlSentence = "INSERT INTO users (account, password, salt, username, phone_number, email) VALUES (?, ?, ?, ?, ?, ?)";
             std::unique_ptr<sql::PreparedStatement> stmt(conn->prepareStatement(sqlSentence));
+
+            std::string salt = generateSalt();
+            std::string hashed = hashPassword(password, salt);
+
             //设置参数
             stmt->setString(1,new_user.getAccount());
-            stmt->setString(2, new_user.getPassword());
-            stmt->setString(3, new_user.getUsername());
-            stmt->setString(4, new_user.getPhoneNumber());
-            stmt->setString(5, new_user.getEmail());
+            stmt->setString(2, toHex(hashed));
+            stmt->setString(3, toHex(salt));
+            stmt->setString(4, new_user.getUsername());
+            stmt->setString(5, new_user.getPhoneNumber());
+            stmt->setString(6, new_user.getEmail());
             //执行
             stmt->executeUpdate();
             pool->releaseConnection(conn);
@@ -37,14 +46,16 @@ public:
     }
     bool verifyUser(const std::string& account, const std::string& inputPassword) {
         try {
-            std::string sql = "SELECT password FROM users WHERE account = ?";
+            auto conn = pool->getConnection();
+            std::string sql = "SELECT password, salt FROM users WHERE account = ?";
             std::unique_ptr<sql::PreparedStatement> stmt(conn->prepareStatement(sql));
             stmt->setString(1, account);
             std::unique_ptr<sql::ResultSet> res(stmt->executeQuery());
 
             if (res->next()) {
                 std::string storedPassword = res->getString("password");
-                return storedPassword == inputPassword;
+                std::string storedSalt = res->getString("salt");
+                return verifyPassword(inputPassword, fromHex(storedPassword), fromHex(storedHash));
             }
         } catch (sql::SQLException& e) {
             std::cerr << "Query error: " << e.what() << std::endl;
@@ -90,5 +101,39 @@ public:
         }
     }
 private:
+    // 生成随机盐
+    std::string generateSalt(size_t length = 16) {
+        unsigned char salt[length];
+        if (RAND_bytes(salt, length) != 1) {
+            throw std::runtime_error("Failed to generate salt");
+        }
+        return std::string(reinterpret_cast<char*>(salt), length);
+    }
+    // 使用 PBKDF2 生成哈希
+    std::string hashPassword(const std::string& password, const std::string& salt, int iterations = 10000, size_t key_len = 32) {
+        unsigned char hash[key_len];
+
+        if (PKCS5_PBKDF2_HMAC(password.c_str(), password.size(),
+                            reinterpret_cast<const unsigned char*>(salt.c_str()), salt.size(),
+                            iterations, EVP_sha256(), key_len, hash) != 1) {
+            throw std::runtime_error("Failed to hash password");
+        }
+
+        return std::string(reinterpret_cast<char*>(hash), key_len);
+    }
+    // 将二进制数据转为十六进制字符串
+    std::string toHex(const std::string& input) {
+        std::ostringstream oss;
+        for (unsigned char c : input) {
+            oss << std::hex << std::setw(2) << std::setfill('0') << (int)c;
+        }
+        return oss.str();
+    }
+    // 校验密码
+    bool verifyPassword(const std::string& password, const std::string& salt, const std::string& storedHash) {
+        std::string newHash = hashPassword(password, salt);
+        return newHash == storedHash;
+    }
+
     MySQLConnectionPool* _pool;
 };

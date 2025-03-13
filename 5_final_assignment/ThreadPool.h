@@ -7,7 +7,9 @@ using namespace std;
 class Task {
 public:
     virtual void execute() = 0;
+    virtual ~Task() = default;
 };
+
 // class Task1 : public Task {
 // public:
 //     void execute() override {
@@ -75,6 +77,7 @@ void* ThreadPool::worker(void* arg) {
                 pthread_mutex_unlock(&pool->queueMutex);
                 break;
             }
+
             task = pool->tasks.front();
             pool->tasks.pop();
             pthread_mutex_unlock(&pool->queueMutex);
