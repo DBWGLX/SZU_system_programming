@@ -15,36 +15,50 @@
 #include "User.hpp"
 #include "LRUTokenManager.hpp"
 
-{//密码加密处理
-    // 生成随机盐
-    std::string generateSalt(size_t length = 16) {
-        unsigned char salt[length];
-        if (RAND_bytes(salt, length) != 1) {
-            throw std::runtime_error("Failed to generate salt");
-        }
-        return std::string(reinterpret_cast<char*>(salt), length);
+// 密码加密处理方法
+// 生成随机盐
+std::string generateSalt(size_t length = 16) {
+    unsigned char salt[length];
+    if (RAND_bytes(salt, length) != 1) {
+        throw std::runtime_error("Failed to generate salt");
     }
-    // 使用 PBKDF2 生成哈希
-    std::string hashPassword(const std::string& password, const std::string& salt, int iterations = 10000, size_t key_len = 32) {
-        unsigned char hash[key_len];
-
-        if (PKCS5_PBKDF2_HMAC(password.c_str(), password.size(),
-                            reinterpret_cast<const unsigned char*>(salt.c_str()), salt.size(),
-                            iterations, EVP_sha256(), key_len, hash) != 1) {
-            throw std::runtime_error("Failed to hash password");
-        }
-
-        return std::string(reinterpret_cast<char*>(hash), key_len);
-    }
-    // 将二进制数据转为十六进制字符串，方便存储
-    std::string toHex(const std::string& input) {
-        std::ostringstream oss;
-        for (unsigned char c : input) {
-            oss << std::hex << std::setw(2) << std::setfill('0') << (int)c;
-        }
-        return oss.str();
-    }
+    return std::string(reinterpret_cast<char*>(salt), length);
 }
+// 使用 PBKDF2 生成哈希
+std::string hashPassword(const std::string& password, const std::string& salt, int iterations = 10000, size_t key_len = 32) {
+    unsigned char hash[key_len];
+
+    if (PKCS5_PBKDF2_HMAC(password.c_str(), password.size(),
+                        reinterpret_cast<const unsigned char*>(salt.c_str()), salt.size(),
+                        iterations, EVP_sha256(), key_len, hash) != 1) {
+        throw std::runtime_error("Failed to hash password");
+    }
+
+    return std::string(reinterpret_cast<char*>(hash), key_len);
+}
+// 将二进制数据转为十六进制字符串，方便存储
+std::string toHex(const std::string& input) {
+    std::ostringstream oss;
+    for (unsigned char c : input) {
+        oss << std::hex << std::setw(2) << std::setfill('0') << (int)c;
+    }
+    return oss.str();
+}
+std::string fromHex(const std::string& input) {
+    std::string output;
+    if (input.length() % 2 != 0) {
+        throw std::invalid_argument("Invalid hex string");
+    }
+
+    for (size_t i = 0; i < input.length(); i += 2) {
+        std::string byteStr = input.substr(i, 2);
+        char byte = static_cast<char>(std::stoi(byteStr, nullptr, 16));
+        output.push_back(byte);
+    }
+
+    return output;
+}
+
 
 //线程方法
 class ClientTask : public Task {
@@ -87,35 +101,135 @@ public:
 private:
     void handleMessageType(int type, json_t *root) {
         switch (type) {
-            case 1:
+            case 1000:
                 handleType1(root);
                 break;
-            case 2:
+            case 2000:
                 handleType2(root);
+                break;
+            case 3000:
+                handleType3(root);
+                break;
+            case 4000:
+                handleType4(root);
+                break;
+            case 5000:
+                handleType5(root);
                 break;
             default:
                 std::cerr << "Unknown message type: " << type << std::endl;
                 break;
         }
     }
-    //发送处理结果
-    void sendResult(int result) {
-        std::string response = "{\"result\":" + std::to_string(result) + "}";
-        send(clientFd, response.c_str(), response.size(), 0);
+    ssize_t sendAll(int sockfd, const char* message) {
+        size_t dataLen = strlen(message);  // 数据总长度
+        size_t totalSent = 0;  // 已发送字节数
+
+        while (totalSent < dataLen) {
+            ssize_t sent = send(sockfd, message + totalSent, dataLen - totalSent, 0);
+            
+            if (sent == -1) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    // 如果发生缓冲区满的情况，稍等后重试
+                    usleep(1000);  // 延迟 1 毫秒再尝试发送
+                    continue;  // 继续发送剩余的数据
+                } else {
+                    perror("send failed");
+                    return -1;  // 发送失败，返回 -1
+                }
+            } else if (sent == 0) {
+                fprintf(stderr, "Connection closed by peer\n");
+                return -1;  // 连接关闭，返回 -1
+            }
+
+            totalSent += sent;  // 累加已发送的字节数
+        }
+
+        return totalSent;  // 返回已发送的字节数
     }
-    //3.发送在线用户名称
-    void sendOnlineUsers(const std::vector<std::string>& users) {
-        json_t *response = json_array();
+    ssize_t sendResult(int sockfd, int type, const char* message) {
+        // 构造 JSON 格式的消息
+        json_object *response = json_object_new_object();
+
+        // 设置 type 字段
+        json_object_object_add(response, "type", json_object_new_int(type));
+
+        // 设置 message 字段
+        json_object_object_add(response, "message", json_object_new_string(message));
+
+        // 获取序列化后的 JSON 字符串
+        const char* responseStr = json_object_to_json_string(response);
+
+        size_t dataLen = strlen(responseStr);  // 数据总长度
+        size_t totalSent = 0;  // 已发送字节数
+
+        while (totalSent < dataLen) {
+            ssize_t sent = send(sockfd, responseStr + totalSent, dataLen - totalSent, 0);
+
+            if (sent == -1) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    // 如果发生缓冲区满的情况，稍等后重试
+                    usleep(1000);  // 延迟 1 毫秒再尝试发送
+                    continue;  // 继续发送剩余的数据
+                } else {
+                    perror("send failed");
+                    json_object_put(response);  // 释放 JSON 对象
+                    return -1;  // 发送失败，返回 -1
+                }
+            } else if (sent == 0) {
+                fprintf(stderr, "Connection closed by peer\n");
+                json_object_put(response);  // 释放 JSON 对象
+                return -1;  // 连接关闭，返回 -1
+            }
+
+            totalSent += sent;  // 累加已发送的字节数
+        }
+
+        json_object_put(response);  // 释放 JSON 对象
+        return totalSent;  // 返回已发送的字节数
+    }
+    int sendUsersInfo(int clientFd, const std::vector<std::pair<std::string, std::string>>& users) {
+        // 创建一个 JSON 对象，包含 "type" 和 "users" 字段
+        json_t *response = json_object();
+        
+        // 设置 type 字段为 3001
+        json_object_set_new(response, "type", json_integer(3001));
+
+        // 创建一个 JSON 数组用于存储用户信息
+        json_t *userArray = json_array();
+
+        // 遍历用户信息（name, account）并构建对应的 JSON 对象
         for (const auto& user : users) {
-            json_array_append_new(response, json_string(user.c_str()));
+            // 为每个用户创建一个 JSON 对象
+            json_t *userObj = json_object();
+            json_object_set_new(userObj, "name", json_string(user.first.c_str()));
+            json_object_set_new(userObj, "account", json_string(user.second.c_str()));
+
+            // 将该用户的 JSON 对象添加到数组中
+            json_array_append_new(userArray, userObj);
         }
+
+        // 将用户数组添加到 response 对象中的 "users" 字段
+        json_object_set_new(response, "users", userArray);
+
+        // 将 JSON 对象序列化为字符串
         char *responseStr = json_dumps(response, 0);
+
         if (responseStr) {
-            send(clientFd, responseStr, strlen(responseStr), 0);
-            free(responseStr);
+            // 使用 sendAll 发送 JSON 数据
+            ssize_t sentBytes = sendAll(clientFd, responseStr);
+            free(responseStr);  // 释放序列化后的 JSON 字符串
+            json_decref(response);  // 释放 JSON 对象的内存
+
+            // 判断发送字节数是否大于 0，返回成功或失败
+            return (sentBytes > 0) ? 0 : -1;
         }
-        json_decref(response);
+
+        json_decref(response);  // 释放 JSON 对象的内存
+        return -1;  // 序列化失败，返回失败
     }
+
+    // 注册
     void handleType1(json_t *root) {
         // 解析 account 字段
         json_t *account_json = json_object_get(root, "account");
@@ -160,14 +274,18 @@ private:
 
         User user(account, password, username, phone_number, email);
         int res = dbop->addUser(user);
-        sendResult(res);
+        if(res)
+            sendResult(_clientFd, 1001, "success");
+        else 
+            sendResult(_clientFd, 1002, "fail");
     }
+    // 登录
     void handleType2(json_t *root) {
         // 解析 account 字段
         json_t *account_json = json_object_get(root, "account");
         if (!json_is_string(account_json)) {
             std::cerr << "Invalid 'account' field in JSON" << std::endl;
-            sendResult(-10);
+            sendResult(_clientFd, 2002, "Invalid 'account'");
             return;
         }
         const char *account = json_string_value(account_json);
@@ -175,22 +293,33 @@ private:
         json_t *password_json = json_object_get(root, "password");
         if (!json_is_string(password_json)) {
             std::cerr << "Invalid 'password' field in JSON" << std::endl;
-            sendResult(-10);
+            sendResult(_clientFd, 2002, "Invalid 'password'");
             return;
         }
         const char *password = json_string_value(password_json);
-        // 从数据库获取该账户的存储密码和盐
+
         bool res = dbop->verifyUser(account,password);
-        if(res)
-            sendResult(0);
+
+        if(res){
+            sendResult(_clientFd, 2001, "success");
+            //发送离线时接收的消息
+            vector<string>strs = dbop->getMessage();
+            for(auto& msg:strs){
+                if(sendAll(receiver_fd, msg.c_str(), msg.size()) == -1){
+                dbop.addMessage(account, receiver_useraccount, msg);
+                perror("Failed to send result\n");
+            }
+        }
+        }
         else
-            sendResult(-1);
+            sendResult(_clientFd, 2002, "fail");
     }
+    // 获取在线人员
     void handleType3(json_t *root){
         json_t *account_json = json_object_get(root, "account");
         if (!json_is_string(account_json)) {
             std::cerr << "Invalid 'account' field in JSON" << std::endl;
-            sendResult(-10);
+            sendResult(_clientFd, 3002, "Invalid 'account'");
             return;
         }
         const char *account = json_string_value(account_json);
@@ -198,20 +327,21 @@ private:
         json_t *token_json = json_object_get(root, "token");
         if (!json_is_string(token_json)) {
             std::cerr << "Invalid 'token' field in JSON" << std::endl;
-            sendResult(-10);
+            sendResult(_clientFd, 3002, "Invalid 'token'");
             return;
         }
         const char *token = json_string_value(token_json);
         // 验证 token
         if (!tokenManager.verifyToken(account, token)) {
             std::cerr << "Invalid or expired token" << std::endl;
-            sendResult(-11);
+            sendResult(_clientFd, 3002, "Invalid or expired token, try relog please.");
             return;
         }
         // 获取在线用户列表
         std::vector<std::string> users = tokenManager.getAllUsers();
-        sendOnlineUsers(users);
+        sendUsersInfo(_clientFd, users);
     }
+    // 聊天
     void handleType4(json_t *root){
         json_t *account_json = json_object_get(root, "account");
         if (!json_is_string(account_json)) {
@@ -234,10 +364,10 @@ private:
             sendResult(-11);
             return;
         }
-        // 解析 receiver_username 字段
-        json_t *receiver_json = json_object_get(root, "receiver_username");
+        // 解析 receiver_useraccount 字段
+        json_t *receiver_json = json_object_get(root, "receiver_useraccount");
         if (!json_is_string(receiver_json)) {
-            std::cerr << "Invalid 'receiver_username' field in JSON" << std::endl;
+            std::cerr << "Invalid 'receiver_useraccount' field in JSON" << std::endl;
             sendResult(-10);
             return;
         }
@@ -259,26 +389,39 @@ private:
         }
         // 构造消息并发送
         std::string msg = "{\"sender\":\"" + std::string(account) + "\",\"message\":\"" + std::string(message) + "\"}";
-        ssize_t bytes_sent = send(receiver_fd, msg.c_str(), msg.size(), 0);
-        if (bytes_sent == -1) {
-            std::cerr << "Failed to send message" << std::endl;
-            sendResult(-13);  // 发送失败
+        if(sendAll(receiver_fd, msg.c_str(), msg.size()) == -1){
+            dbop.addMessage(account, receiver_useraccount, msg);
+            perror("Failed to send result\n");
+        }
+    }
+    void handleType5(json_t *root){
+        json_t *account_json = json_object_get(root, "account");
+        if (!json_is_string(account_json)) {
+            std::cerr << "Invalid 'account' field in JSON" << std::endl;
+            sendResult(-10);
+            return;
+        }
+        const char *account = json_string_value(account_json);
+        json_t *token_json = json_object_get(root, "token");
+        if (!json_is_string(token_json)) {
+            std::cerr << "Invalid 'token' field in JSON" << std::endl;
+            sendResult(-10);
+            return;
+        }
+        const char *token = json_string_value(token_json);
+        if (!tokenManager.verifyToken(account, token)) {
+            std::cerr << "Invalid or expired token" << std::endl;
+            sendResult(-11);
+            return;
+        }
+        if (!tokenManager.logout(account)) {
+            std::cerr << "Failed to log out user" << std::endl;
+            sendResult(-13);
             return;
         }
 
-        // 等待接收确认
-        std::string ack;
-        if (receiveAcknowledgment(receiver_fd, ack)) {
-            if (ack == "ACK") {
-                sendResult(0);  // 成功
-            } else {
-                std::cerr << "Receiver did not acknowledge the message" << std::endl;
-                sendResult(-14);  // 未收到确认
-            }
-        } else {
-            std::cerr << "Failed to receive acknowledgment" << std::endl;
-            sendResult(-15);  // 接收确认失败
-        }
+        std::cout << "User " << account << " logged out successfully" << std::endl;
+        sendResult(0);
     }
 
     void freeFd(){

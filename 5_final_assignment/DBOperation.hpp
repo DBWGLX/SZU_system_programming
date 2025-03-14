@@ -24,7 +24,7 @@ public:
             std::string hashed = hashPassword(password, salt);
 
             //设置参数
-            stmt->setString(1,new_user.getAccount());
+            stmt->setString(1, new_user.getAccount());
             stmt->setString(2, toHex(hashed));
             stmt->setString(3, toHex(salt));
             stmt->setString(4, new_user.getUsername());
@@ -100,6 +100,85 @@ public:
             return -1; // 其他错误
         }
     }
+    int addMessage(const std::string& send_account, const std::string& recv_account, const std::string message){
+        try {
+            // 获取数据库连接
+            auto conn = _pool->getConnection();
+            
+            // 插入消息的 SQL 语句
+            std::string sql = "INSERT INTO messages (sender_account, receiver_account, content) VALUES (?, ?, ?)";
+            
+            // 准备 SQL 语句
+            std::unique_ptr<sql::PreparedStatement> stmt(conn->prepareStatement(sql));
+            
+            // 设置 SQL 语句的参数
+            stmt->setString(1, send_account);
+            stmt->setString(2, recv_account);
+            stmt->setString(3, message);
+            
+            // 执行插入操作
+            int rowsAffected = stmt->executeUpdate();
+            
+            // 释放数据库连接
+            _pool->releaseConnection(conn);
+            
+            if (rowsAffected > 0) {
+                return 0; // 消息插入成功
+            } else {
+                return -3; // 消息插入失败
+            }
+        } catch (sql::SQLException& e) {
+            std::cerr << "Error: " << e.what() << std::endl;
+            return -1; // 其他错误
+        }
+    }
+    std::vector<std::string> getMessage(const std::string& recv_account) {
+        std::vector<std::string> messages; // 用于存储每条消息
+
+        try {
+            // 获取数据库连接
+            auto conn = _pool->getConnection();
+            
+            // 查询消息的 SQL 语句
+            std::string sql = "SELECT message_id, sender_account, content FROM messages WHERE receiver_account = ?";
+
+            // 准备 SQL 语句
+            std::unique_ptr<sql::PreparedStatement> stmt(conn->prepareStatement(sql));
+            
+            // 设置 SQL 语句的参数
+            stmt->setString(1, recv_account);
+            
+            // 执行查询操作
+            std::unique_ptr<sql::ResultSet> res(stmt->executeQuery());
+
+            // 遍历查询结果
+            while (res->next()) {
+                int message_id = res->getInt("message_id");
+                std::string sender_account = res->getString("sender_account");
+                std::string content = res->getString("content");
+                
+                // 拼接消息内容
+                std::string message = "[离线消息]From: " + sender_account + "\nMessage: " + content + "\n\n";
+                
+                // 将消息加入到结果 vector 中
+                messages.push_back(message);
+                
+                // 删除已获取的消息
+                std::string delete_sql = "DELETE FROM messages WHERE message_id = ?";
+                std::unique_ptr<sql::PreparedStatement> delete_stmt(conn->prepareStatement(delete_sql));
+                delete_stmt->setInt(1, message_id);
+                delete_stmt->executeUpdate();
+            }
+
+            // 释放数据库连接
+            _pool->releaseConnection(conn);
+
+            return std::move(messages); // 返回所有消息
+        } catch (sql::SQLException& e) {
+            std::cerr << "Error: " << e.what() << std::endl;
+            return {}; // 返回空 vector，表示出错
+        }
+    }
 private:
     // 生成随机盐
     std::string generateSalt(size_t length = 16) {
@@ -128,6 +207,20 @@ private:
             oss << std::hex << std::setw(2) << std::setfill('0') << (int)c;
         }
         return oss.str();
+    }
+    std::string fromHex(const std::string& input) {
+        std::string output;
+        if (input.length() % 2 != 0) {
+            throw std::invalid_argument("Invalid hex string");
+        }
+
+        for (size_t i = 0; i < input.length(); i += 2) {
+            std::string byteStr = input.substr(i, 2);
+            char byte = static_cast<char>(std::stoi(byteStr, nullptr, 16));
+            output.push_back(byte);
+        }
+
+        return output;
     }
     // 校验密码
     bool verifyPassword(const std::string& password, const std::string& salt, const std::string& storedHash) {

@@ -1,6 +1,6 @@
 聊天服务器数据库设计：
 用户表：用户id 账号 密码 用户名 用户手机号 用户邮箱 
-
+聊天记录表：消息id 用户id 对方名称 消息内容
 
 ```
 -- 创建用户表
@@ -26,5 +26,23 @@ CREATE TABLE users (
     -- 设置用户 ID 为主键
     PRIMARY KEY (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '存储用户的基本信息，包括账号、密码、姓名、手机号、邮箱以及创建和修改时间等';
+
+-- 创建消息表
+CREATE TABLE messages (
+    -- 消息 ID，主键，自增
+    message_id INT AUTO_INCREMENT COMMENT '消息的唯一标识',
+    -- 发送者用户 account，关联用户表
+    sender_account INT NOT NULL COMMENT '发送消息的用户 account',
+    -- 接收者用户 account，关联用户表
+    receiver_account INT NOT NULL COMMENT '接收消息的用户 account',
+    -- 消息内容，非空
+    content TEXT NOT NULL COMMENT '聊天消息内容',
+    -- 设置消息 ID 为主键
+    PRIMARY KEY (message_id),
+    -- 建立发送者和接收者的外键关联
+    FOREIGN KEY (sender_account) REFERENCES users(account) ON DELETE CASCADE,
+    FOREIGN KEY (receiver_account) REFERENCES users(account) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '仅存储接收者不在线时的离线消息，用户上线后消息将被取出并删除';
+
 
 ```

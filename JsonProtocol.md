@@ -22,22 +22,24 @@ token：
 
 ### 不同报文类型
 
-#### 0.回应报文
+
+
+#### 服务器发送给客户端的消息一般格式
 
 ```
 {
-    "type": 0,
-    "sequence": 1000,
-    "status": "ACK" / "TIME_OUT"
+    "type": 1001,
+    "message": "success"
 }
 ```
+
+#### 客户端发送与接收的报文
 
 #### 1.注册报文
 
 ```
 {
-    "type": 1,
-    "sequence": 1000,
+    "type": 1000,
     "account": "test_account",
     "password": "test_password",
     "username": "Test User",
@@ -46,62 +48,85 @@ token：
 }
 ```
 
+1001 注册成功
+1002 注册失败
+
 #### 2.登录报文
 
 ```
 {
-    "type": 2,
-    "sequence": 1000,
+    "type": 2000,
     "account": "test_account",
     "password": "test_password"
 }
 ```
-返回一个token令牌
+
+2001 登录成功，返回一个token令牌
+2002 登录失败
 
 #### 3.获取在线人员
 
 ```
 {
-    "type": 3,
-    "sequence": 1000,
+    "type": 3000,
     "account": "test_account",
     "token": "valid_token"
 }
 ```
+
+3001 获取成功，返回人员列表
+```
+{
+    "type": 3001,
+    "users": [
+        {"name": "Alice", "account": "1001"},
+        {"name": "Bob", "account": "1002"},
+        {"name": "Charlie", "account": "1003"}
+    ]
+}
+
+```
+3002 获取失败
 
 #### 4.聊天报文
 
 ```
 {
-    "type": 4,
-    "sequence": 1000,
+    "type": 4000,
     "account": "sender_account",
     "token": "valid_token",
-    "receiver_username": "receiver_username",
+    "receiver_useraccount": "receiver_useraccount",
     "message": "Hello, how are you?"
 }
 ```
+
+4001 发送成功
+4002 发送失败
+
+4010 收到消息
 
 #### 5.下线报文
 
 ```
 {
-    "type": 5,
-    "sequence": 1000,
+    "type": 5000,
     "account": "test_account",
     "token": "valid_token"
 }
 ```
 
+5001 下线成功
+
 #### 6.修改个人信息报文
 
 ```
 {
-    "type": 6,
-    "sequence": 1000,
+    "type": 6000,
     "account": "test_account",
     "token": "valid_token",
     "phone_number": "13987654321",
     "username": "New Name"
 }
 ```
+
+
