@@ -1,6 +1,10 @@
 #include <iostream>
 #include <csignal>
 #include <stdexcept>
+#include <atomic>
+#include <unistd.h>
+#include "Logger.hpp"
+#include "EpollServer.hpp"
 
 //程序中断
 std::atomic<bool> interrupted(false);//原子变量可以保证在多线程环境下的安全访问。
@@ -36,7 +40,10 @@ int main(){
         printf("#### The author is DBWGLX.Learn more in https://github.com/lubenweiNBNBNBNB. Thank you!🤓❤️\n");
 
         init();
-    
+        EpollServer eserver;
+        eserver.work(interrupted);
+
+
     } catch(const std::exception& e){
         std::cerr << "Caught exception: " << e.what() << std::endl;
         fatal_str(e.what());

@@ -5,4 +5,21 @@
 # json jansson库
 -ljansson
 
-g++ test.cc MySQLConnectionPool.hpp -std=c++17 -I/usr/include/mysql-cppconn/jdbc -lmysqlcppconn -pthread -L /root/work/EpollChatServer/cmake_out/lib -lasync_logger -ljansson -o test.out 
+# openSSH
+-lcrypto
+
+g++ test.cc MySQLConnectionPool.hpp 
+-std=c++17 
+-I/usr/include/mysql-cppconn/jdbc 
+-lmysqlcppconn 
+-pthread 
+-L /root/work/EpollChatServer/cmake_out/lib -lasync_logger 
+-ljansson 
+-o test.out 
+
+
+# 切换GCC版本 Software Collections
+scl enable devtoolset-8 bash  
+
+# 链接我的日志器 临时设置终端环境变量 为动态库位置（非默认目录时）
+export LD_LIBRARY_PATH=/root/work/MyLogger/cmake_out/lib:$LD_LIBRARY_PATH
