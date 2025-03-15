@@ -157,11 +157,6 @@ std::vector<std::string> DBOperation::getMessage(const std::string& recv_account
 
             std::string message = "[离线消息]From: " + sender_account + "\nMessage: " + content + "\n\n";
             messages.push_back(message);
-
-            std::string delete_sql = "DELETE FROM messages WHERE message_id = ?";
-            std::unique_ptr<sql::PreparedStatement> delete_stmt(conn->prepareStatement(delete_sql));
-            delete_stmt->setInt(1, message_id);
-            delete_stmt->executeUpdate();
         }
 
         _pool->releaseConnection(conn);
@@ -169,6 +164,22 @@ std::vector<std::string> DBOperation::getMessage(const std::string& recv_account
     } catch (sql::SQLException& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return {};
+    }
+}
+
+int DBOperation::deleteMessage(const std::string& recv_account){
+    try {
+        auto conn = _pool->getConnection();
+        std::string sql = "DELETE FROM messages WHERE receiver_account = ?";
+        std::unique_ptr<sql::PreparedStatement> stmt(conn->prepareStatement(sql));
+        stmt->setString(1, recv_account);
+        int affectedRows = stmt->executeUpdate();
+
+        _pool->releaseConnection(conn);
+        return affectedRows;
+    } catch (sql::SQLException& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return -1;
     }
 }
 

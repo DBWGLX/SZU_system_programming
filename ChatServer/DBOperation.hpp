@@ -19,7 +19,7 @@ public:
     int deleteUser(const std::string& account);
     int addMessage(const std::string& send_account, const std::string& recv_account, const std::string message);
     std::vector<std::string> getMessage(const std::string& recv_account);
-
+    int deleteMessage(const std::string& recv_account);
 private:
     std::string generateSalt(size_t length = 16);
     std::string hashPassword(const std::string& password, const std::string& salt, int iterations = 10000, size_t key_len = 32);

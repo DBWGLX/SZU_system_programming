@@ -24,11 +24,7 @@ void init(){
         perror("setsid error");
         exit(1);
     }
-    //改变工作目录
-    if (chdir("/") < 0) {
-        perror("chdir error");
-        exit(1);
-    }
+
 
     /////
     signal(SIGINT, signalHandler);
@@ -40,8 +36,8 @@ int main(){
         printf("#### The author is DBWGLX.Learn more in https://github.com/lubenweiNBNBNBNB. Thank you!🤓❤️\n");
 
         init();
-        EpollServer eserver;
-        eserver.work(interrupted);
+        EpollServer eServer;
+        eServer.work(interrupted);
 
 
     } catch(const std::exception& e){
