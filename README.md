@@ -2,7 +2,7 @@
 ![](https://img.shields.io/github/languages/code-size/DBWGLX/SZU_system_programming.svg)
 ![](https://img.shields.io/github/license/DBWGLX/SZU_system_programming.svg)
 
-基于 Linux 的 C++ 聊天服务器演示项目
+基于 Linux 的 C++ 网络聊天服务器演示项目
 =
 
 ### 项目概述

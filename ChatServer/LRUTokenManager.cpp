@@ -53,7 +53,9 @@ std::vector<std::pair<std::string, std::string>> LRUTokenManager::getAllUsers() 
 }
 
 int LRUTokenManager::getUserFd(const std::string& account) {
-    return tokenMap[account].first.clientFd;
+    if(tokenMap.count(account))
+        return tokenMap[account].first.clientFd;
+    return -1;
 }
 
 bool LRUTokenManager::logout(const std::string& account) {

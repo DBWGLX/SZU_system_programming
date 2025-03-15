@@ -295,18 +295,32 @@ void ClientTask::handleType2(json_t *root) {
     if(res){
         std::string token = _LRUm->generate_token();
         sendResult(_clientFd, 2001, token.c_str());
-        _LRUm->saveToken(account, token, _dbopPtr->getUsername(account), _clientFd);
+        std::string username = _dbopPtr->getUsername(account); 
+        _LRUm->saveToken(account, token, username, _clientFd);
+        sendResult(_clientFd, 2011, username.c_str());
 
         //发送离线时接收的消息
         bool flag = true;
         std::vector<std::string> strs = _dbopPtr->getMessage(account);
-        for(auto& msg: strs){
-            if(sendAll(_clientFd, msg.c_str()) == -1){
-                _dbopPtr->addMessage(account, account, msg);
-                perror("Failed to send result\n");
+        for(auto& str: strs){
+            json_t *json_obj = json_object();
+            json_object_set_new(json_obj, "type", json_integer(4010));
+            json_object_set_new(json_obj, "account", json_string(account));
+            json_object_set_new(json_obj, "message", json_string(str.c_str()));
+            // 转换为字符串
+            char *msg = json_dumps(json_obj, JSON_COMPACT);
+            json_decref(json_obj); // 释放 JSON 对象
+            if (!msg) {
+                std::cerr << "Failed to create JSON string" << std::endl;
                 flag = false;
-                break;
+                return;
             }
+            // 发送消息
+            if (sendAll(_clientFd, msg) == -1) {
+                perror("T2 Failed to send result\n");
+                flag = false;
+            }
+            free(msg); // 释放 JSON 字符串
         }
         if(flag){
             _dbopPtr->deleteMessage(account);
