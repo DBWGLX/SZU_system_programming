@@ -1,7 +1,6 @@
 ![](https://img.shields.io/github/repo-size/DBWGLX/SZU_system_programming.svg)
 ![](https://img.shields.io/github/languages/code-size/DBWGLX/SZU_system_programming.svg)
 ![](https://img.shields.io/github/license/DBWGLX/SZU_system_programming.svg)
-![](https://img.shields.io/badge/%20SZU%20-8C0A41)
 
 基于 Linux 的 C++ 聊天服务器演示项目
 =
@@ -42,7 +41,24 @@
 ![image](https://github.com/user-attachments/assets/f8409b7c-4b54-4c67-b456-d345a447e863)
 
 - 客户端操作<br>
-操作指南
+操作指南<br>
 ![image](https://github.com/user-attachments/assets/e4bbe743-31c4-440e-b168-9653d906a6fd)
+<br>注册<br>
+![image](https://github.com/user-attachments/assets/d377d1e2-c779-4fb1-83b1-3cc39b03e4a9)
+<br>登录<br>
+![image](https://github.com/user-attachments/assets/abf5d8e2-ddf3-4673-9c04-0ff901cfa41f)
+<br>获取在线用户<br>
+![image](https://github.com/user-attachments/assets/b4cd5ebb-09cf-4963-8d06-c44130d34c75)
+<br>聊天<br>
+![image](https://github.com/user-attachments/assets/ac7cdd26-052d-4703-872c-8cd7d8264466)
+<br>退出<br>
+![image](https://github.com/user-attachments/assets/4c974182-4ca8-456c-bf6b-fd680259d39e)
+
+- 数据库展示<br>
+![image](https://github.com/user-attachments/assets/75fd89b7-5334-4d7b-ba48-8adcc645f502)
+
+- 日志展示<br>
+![image](https://github.com/user-attachments/assets/f15a6e1c-83c8-48be-b877-5845e3ac9cc5)
+
 
 
