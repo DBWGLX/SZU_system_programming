@@ -5,9 +5,9 @@ User::User() : _user_id(0) {}
 
 // 带有用户名和密码的构造函数
 User::User(const std::string& account, const std::string& password, const std::string& username, 
-           const std::string& salt, const std::string& phone_number, const std::string& email)
+           const std::string& phone_number, const std::string& email)
     : _account(account), _username(username), _password(password), 
-      _salt(salt), _phone_number(phone_number), _email(email) {}
+      _phone_number(phone_number), _email(email) {}
 
 // 完整信息的构造函数
 User::User(size_t user_id, const std::string& account, const std::string& password, 

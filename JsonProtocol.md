@@ -110,6 +110,13 @@ token：
 4002 发送失败
 
 4010 收到消息
+```
+{
+    "type": 4010,
+    "account": "sender_account",
+    "message": "Hello, how are you?"
+}
+```
 
 #### 5.下线报文
 

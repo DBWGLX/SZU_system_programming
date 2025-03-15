@@ -65,6 +65,15 @@ void ClientTask::execute() {
         return;
     }
 
+    // 打印接收到的原始 JSON 内容
+    //debug("Received raw JSON: %s", buffer);
+    // 将解析后的 JSON 对象序列化为字符串并打印
+    char* json_str = json_dumps(root, JSON_INDENT(2));
+    if (json_str) {
+        debug("Parsed JSON: %s", json_str);
+        free(json_str);
+    }
+
     // 读取 type 字段
     json_t *type_json = json_object_get(root, "type");
     if (!json_is_integer(type_json)) {
@@ -257,7 +266,7 @@ void ClientTask::handleType1(json_t *root) {
 
     User user(account, password, username, phone_number, email);
     int res = _dbopPtr->addUser(user);
-    if(res)
+    if(res == 0)
         sendResult(_clientFd, 1001, "success");
     else 
         sendResult(_clientFd, 1002, "fail");
@@ -379,12 +388,26 @@ void ClientTask::handleType4(json_t *root){
         _dbopPtr->addMessage(account , receiver, message);
         return;
     }
+
     // 构造消息并发送
-    std::string msg = "{\"sender\":\"" + std::string(account) + "\",\"message\":\"" + std::string(message) + "\"}";
-    if(sendAll(receiver_fd, msg.c_str()) == -1){
+    // 创建 JSON 对象
+    json_t *json_obj = json_object();
+    json_object_set_new(json_obj, "type", json_integer(4010));
+    json_object_set_new(json_obj, "account", json_string(account));
+    json_object_set_new(json_obj, "message", json_string(message));
+    // 转换为字符串
+    char *msg = json_dumps(json_obj, JSON_COMPACT);
+    json_decref(json_obj); // 释放 JSON 对象
+    if (!msg) {
+        std::cerr << "Failed to create JSON string" << std::endl;
+        return;
+    }
+    // 发送消息
+    if (sendAll(receiver_fd, msg) == -1) {
         _dbopPtr->addMessage(account, receiver, msg);
         perror("Failed to send result\n");
     }
+    free(msg); // 释放 JSON 字符串
 }
 
 void ClientTask::handleType5(json_t *root){
@@ -412,9 +435,12 @@ void ClientTask::handleType5(json_t *root){
         sendResult(_clientFd, 5002, "Fail");
         return;
     }
+    std::ostringstream oss;
+    oss << "User " << account << " logged out successfully" << std::endl;
+    info_str(oss.str());
 
-    std::cout << "User " << account << " logged out successfully" << std::endl;
     sendResult(_clientFd, 5001, "success");
+    freeFd();
 }
 
 void ClientTask::freeFd(){

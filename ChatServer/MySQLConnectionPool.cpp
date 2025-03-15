@@ -40,6 +40,15 @@ void MySQLConnectionPool::releaseConnection(std::shared_ptr<sql::Connection> con
 
 // 创建一个新的数据库连接
 std::shared_ptr<sql::Connection> MySQLConnectionPool::createConnection() {
-    sql::mysql::MySQL_Driver *driver = sql::mysql::get_mysql_driver_instance();
-    return std::shared_ptr<sql::Connection>(driver->connect(_host, _user, _password));
+    try{
+        sql::mysql::MySQL_Driver *driver = sql::mysql::get_mysql_driver_instance();
+        std::shared_ptr<sql::Connection> conn(driver->connect(_host, _user, _password));
+        if (conn) {
+            conn->setSchema(_database); // 选择数据库
+        }
+        return conn;
+    } catch (sql::SQLException &e) {
+        std::cerr << "SQLException in createConnection(): " << e.what() << std::endl;
+        return nullptr;
+    }
 }

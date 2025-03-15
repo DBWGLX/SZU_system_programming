@@ -19,15 +19,25 @@ int DBOperation::addUser(const User& new_user) {
         stmt->setString(5, new_user.getPhoneNumber());
         stmt->setString(6, new_user.getEmail());
         
+        debug_str("new_user.email: "+new_user.getEmail());
+
         stmt->executeUpdate();
         _pool->releaseConnection(conn);
+
         return 0;
     } catch (sql::SQLException& e) {
+        std::ostringstream oss;
         if(e.getErrorCode() == 1062) {
+            oss << "Error: Duplicate entry error. Error code: " << e.getErrorCode() 
+                << ", SQLState: " << e.getSQLState() 
+                << ", Message: " << e.what();
+            fatal_str(oss.str());
             return -1;
         }
-        std::cerr << "Error: " << e.what() << std::endl;
-        fatal_str(e.what());
+        oss << "Error: General database error. Error code: " << e.getErrorCode() 
+            << ", SQLState: " << e.getSQLState() 
+            << ", Message: " << e.what() << std::endl;
+        fatal_str(oss.str());
         return -2;
     }
 }

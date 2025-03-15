@@ -8,7 +8,7 @@ public:
 
     // 带有用户名和密码的构造函数
     User(const std::string& account, const std::string& password, const std::string& username, 
-         const std::string& salt, const std::string& phone_number = "", const std::string& email = "");
+         const std::string& phone_number = "", const std::string& email = "");
 
     // 完整信息的构造函数
     User(size_t user_id, const std::string& account, const std::string& password, 

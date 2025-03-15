@@ -25,7 +25,6 @@ void init(){
         exit(1);
     }
 
-
     /////
     signal(SIGINT, signalHandler);
 }
@@ -36,9 +35,10 @@ int main(){
         printf("#### The author is DBWGLX.Learn more in https://github.com/lubenweiNBNBNBNB. Thank you!🤓❤️\n");
 
         init();
+        info_str("🟢 服务器启动");
+        LOG("\n🟢 服务器启动");
         EpollServer eServer;
         eServer.work(interrupted);
-
 
     } catch(const std::exception& e){
         std::cerr << "Caught exception: " << e.what() << std::endl;

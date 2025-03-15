@@ -32,9 +32,9 @@ CREATE TABLE messages (
     -- 消息 ID，主键，自增
     message_id INT AUTO_INCREMENT COMMENT '消息的唯一标识',
     -- 发送者用户 account，关联用户表
-    sender_account INT NOT NULL COMMENT '发送消息的用户 account',
+    sender_account VARCHAR(50) NOT NULL COMMENT '发送消息的用户 account',
     -- 接收者用户 account，关联用户表
-    receiver_account INT NOT NULL COMMENT '接收消息的用户 account',
+    receiver_account VARCHAR(50) NOT NULL COMMENT '接收消息的用户 account',
     -- 消息内容，非空
     content TEXT NOT NULL COMMENT '聊天消息内容',
     -- 设置消息 ID 为主键
