@@ -25,7 +25,13 @@ CREATE TABLE users (
     last_modify_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '用户记录的最近修改时间',
     -- 设置用户 ID 为主键
     PRIMARY KEY (user_id)
+    -- 创建 account 字段的索引
+    INDEX idx_account (account)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '存储用户的基本信息，包括账号、密码、姓名、手机号、邮箱以及创建和修改时间等';
+
+-- 创建 account 字段的索引
+CREATE INDEX idx_account ON users(account);
+
 
 -- 创建消息表
 CREATE TABLE messages (

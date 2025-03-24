@@ -32,7 +32,7 @@ void init(){
 int main(){
     try{
         printf("\033[33m#### Welcome to use the chat server.The server will run.\n");
-        printf("#### The author is DBWGLX.Learn more in https://github.com/lubenweiNBNBNBNB. Thank you!🤓❤️\n\033[0m");
+        printf("#### The author is DBWGLX.Learn more in https://github.com/DBWGLX/SZU_system_programming. Thank you!🤓❤️\n\033[0m");
 
         init();
         info_str("🟢 服务器启动");

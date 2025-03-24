@@ -8,9 +8,11 @@
 #include <mutex>
 #include <vector>
 
+#define MAX_USERS_NUM 1e4
+
 class LRUTokenManager {
 public:
-    explicit LRUTokenManager(size_t cap = 100);
+    explicit LRUTokenManager(size_t cap = MAX_USERS_NUM);
     std::string generate_token(size_t length = 32);
     void saveToken(const std::string& account, const std::string& token, const std::string& username, int clientFd);
     bool verifyToken(const std::string& account, const std::string& token);

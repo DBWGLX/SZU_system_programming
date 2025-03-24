@@ -161,7 +161,7 @@ std::vector<std::string> DBOperation::getMessage(const std::string& recv_account
         std::unique_ptr<sql::ResultSet> res(stmt->executeQuery());
 
         while (res->next()) {
-            int message_id = res->getInt("message_id");
+            //int message_id = res->getInt("message_id");
             std::string sender_account = res->getString("sender_account");
             std::string content = res->getString("content");
 

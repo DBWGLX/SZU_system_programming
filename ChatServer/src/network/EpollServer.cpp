@@ -28,7 +28,7 @@ void EpollServer::work(std::atomic<bool>& interrupted) {
             break;
         }
 
-        info_str("📨 服务器收到请求");
+        //info_str("📨 服务器收到请求");
         //
         handleEpollEvents(events, readyFdCount);
 

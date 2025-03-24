@@ -46,45 +46,45 @@ ClientTask::ClientTask(int clientFd, int epollFd, DBOperation* dbopPtr, LRUToken
 {}
 
 void ClientTask::execute() {
-    char buffer[4096];
-    ssize_t bytesRead = recv(_clientFd, buffer, sizeof(buffer), 0);
-    if(bytesRead <= 0){
-        perror("recv Error");
-        freeFd();
-        return;
-    }
-    buffer[bytesRead] = '\0';
+    std::string buffer;
+    while(true){
+        char recv_buffer[4096];
+        ssize_t bytesRead = recv(_clientFd, recv_buffer, sizeof(buffer), 0);
+        if(bytesRead <= 0){
+            break;
+        }
+        recv_buffer[bytesRead] = '\0';
+        buffer.append(recv_buffer,bytes_received);
 
-    json_t *root;
-    json_error_t error;
-
-    root = json_loads(buffer, 0, &error);
-    if (!root) {
-        std::cerr << "JSON parse error: " << error.text << std::endl;
-        freeFd();
-        return;
+        size_t pos;
+        while((pos = buffer.find("\r\n")) != std::string::npos){ // ! 处理粘包问题
+            json_t *root;
+            json_error_t error;
+            root = json_loads(buffer, 0, &error);
+            if (!root) {
+                std::cerr << "JSON parse error: " << error.text << std::endl;
+                freeFd();
+                return;
+            }
+            // 将解析后的 JSON 对象序列化为字符串并打印
+            char* json_str = json_dumps(root, JSON_INDENT(2));
+            if (json_str) {
+                debug("Parsed JSON: %s", json_str);
+                free(json_str);
+            }
+            // 读取 type 字段
+            json_t *type_json = json_object_get(root, "type");
+            if (!json_is_integer(type_json)) {
+                std::cerr << "Invalid 'type' field in JSON" << std::endl;
+                json_decref(root);
+                freeFd();
+                return;
+            }
+            int type = json_integer_value(type_json);
+            handleMessageType(type, root);
+            json_decref(root);
+        }
     }
-
-    // 打印接收到的原始 JSON 内容
-    //debug("Received raw JSON: %s", buffer);
-    // 将解析后的 JSON 对象序列化为字符串并打印
-    char* json_str = json_dumps(root, JSON_INDENT(2));
-    if (json_str) {
-        debug("Parsed JSON: %s", json_str);
-        free(json_str);
-    }
-
-    // 读取 type 字段
-    json_t *type_json = json_object_get(root, "type");
-    if (!json_is_integer(type_json)) {
-        std::cerr << "Invalid 'type' field in JSON" << std::endl;
-        json_decref(root);
-        freeFd();
-        return;
-    }
-    int type = json_integer_value(type_json);
-    handleMessageType(type, root);
-    json_decref(root);
 }
 
 void ClientTask::handleMessageType(int type, json_t *root) {
@@ -222,6 +222,7 @@ int ClientTask::sendUsersInfo(int clientFd, const std::vector<std::pair<std::str
     return -1;  // 序列化失败，返回失败
 }
 
+//注册
 void ClientTask::handleType1(json_t *root) {
     // 解析 account 字段
     json_t *account_json = json_object_get(root, "account");
@@ -272,6 +273,7 @@ void ClientTask::handleType1(json_t *root) {
         sendResult(_clientFd, 1002, "fail");
 }
 
+//登录
 void ClientTask::handleType2(json_t *root) {
     // 解析 account 字段
     json_t *account_json = json_object_get(root, "account");
@@ -330,6 +332,7 @@ void ClientTask::handleType2(json_t *root) {
         sendResult(_clientFd, 2002, "fail");
 }
 
+//获取在线用户列表
 void ClientTask::handleType3(json_t *root){
     json_t *account_json = json_object_get(root, "account");
     if (!json_is_string(account_json)) {
@@ -357,6 +360,7 @@ void ClientTask::handleType3(json_t *root){
     sendUsersInfo(_clientFd, userPairs);
 }
 
+//聊天
 void ClientTask::handleType4(json_t *root){
     json_t *account_json = json_object_get(root, "account");
     if (!json_is_string(account_json)) {
@@ -424,6 +428,7 @@ void ClientTask::handleType4(json_t *root){
     free(msg); // 释放 JSON 字符串
 }
 
+//登出
 void ClientTask::handleType5(json_t *root){
     json_t *account_json = json_object_get(root, "account");
     if (!json_is_string(account_json)) {
