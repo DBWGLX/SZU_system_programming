@@ -29,6 +29,8 @@ void ClientTask::PROTOBUF_handle(){
     std::string received_data(length, '\0');
     if (recv(_clientFd, &received_data[0], length, 0) <= 0) return;
 
+    debug_str("protobuf: " + received_data);
+
     chat::ChatMessage msg; // 只用一下type字段
     if (!msg.ParseFromString(received_data)) {
         fatal_str("Failed to parse protobuf message!");

@@ -100,7 +100,7 @@ ssize_t sendAll(int sockfd, const char* data, size_t len) {
     }
     return totalSent;
 }
-ssize_t ClientTask::PROTOBUF_sendAll(int sockfd, std::string serialized_data){// KLV打包
+ssize_t PROTOBUF_sendAll(int sockfd, std::string serialized_data){// KLV打包
     uint32_t key = htonl(PROTOBUF_KEY);
     uint32_t length = htonl(serialized_data.size());
     std::string packet;
@@ -135,7 +135,7 @@ void sendMessage(int sockfd, UserInfo *user_info) {
             std::string serialized_data;
             if(!msg.SerializeToString(&serialized_data)){
                 perror("quit:Protobuf 序列化失败！");
-                return -1;
+                return;
             }
 
             if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
@@ -169,7 +169,7 @@ void sendMessage(int sockfd, UserInfo *user_info) {
             std::string serialized_data;
             if(!msg.SerializeToString(&serialized_data)){
                 perror("register:Protobuf 序列化失败！");
-                return -1;
+                return ;
             }
 
             if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
@@ -195,7 +195,7 @@ void sendMessage(int sockfd, UserInfo *user_info) {
             std::string serialized_data;
             if(!msg.SerializeToString(&serialized_data)){
                 perror("login:Protobuf 序列化失败！");
-                return -1;
+                return;
             }
 
             if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
@@ -217,7 +217,7 @@ void sendMessage(int sockfd, UserInfo *user_info) {
             std::string serialized_data;
             if(!msg.SerializeToString(&serialized_data)){
                 perror("online:Protobuf 序列化失败！");
-                return -1;
+                return ;
             }
 
             if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
@@ -248,7 +248,7 @@ void sendMessage(int sockfd, UserInfo *user_info) {
             std::string serialized_data;
             if(!msg.SerializeToString(&serialized_data)){
                 perror("online:Protobuf 序列化失败！");
-                return -1;
+                return;
             }
 
             if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
@@ -272,7 +272,8 @@ void sendMessage(int sockfd, UserInfo *user_info) {
 void receiveMessage(int sockfd, UserInfo *user_info) {
     while (running) {
         uint32_t key;
-        if (recv(sockfd, &key, sizeof(key), 0) > 0){ 
+        size_t bytes_received = recv(sockfd, &key, sizeof(key), 0);
+        if (bytes_received > 0){ 
             key = ntohl(key); //PROTOBUF_KEY
 
             uint32_t length;
@@ -285,39 +286,40 @@ void receiveMessage(int sockfd, UserInfo *user_info) {
 
             chat::Response msg; // 只用一下type字段
             if (!msg.ParseFromString(received_data)) {
-                fatal_str("Failed to parse protobuf message!");
+                perror("recv: Failed to parse protobuf message!");
                 continue;
             }
 
             int type = msg.type();
+            std::cout << std::endl;
             switch (type) {
                 // 注册响应处理
                 case 1001: {
-                    std::cout << std::endl << BG_COLOR_GREEN << "注册成功: " << Response.message()
+                    std::cout << BG_COLOR_GREEN << "注册成功: " << msg.message()
                         << COLOR_RESET << std::endl;
                     break;
                 }
                 case 1002: {
-                    std::cout << std::endl << BG_COLOR_RED << "注册失败: " << Response.message()
+                    std::cout << BG_COLOR_RED << "注册失败: " << msg.message()
                         << COLOR_RESET << std::endl;
                     break;
                 }
                 case 2001: { // 登录成功
                     chat::LoginResponse loginmsg;
                     if (!loginmsg.ParseFromString(received_data)) {
-                        fatal_str("login: Failed to parse protobuf message!");
+                        perror("login: Failed to parse protobuf message!");
                         continue;
                     }
                     user_info->setToken(loginmsg.token());
                     user_info->username = loginmsg.username();
 
-                    std::cout << std::endl << BG_COLOR_GREEN  << "登录成功" << COLOR_RESET  << std::endl;
-                    std::cout << std::endl << COLOR_YELLOW << "欢迎！" << user_info->username << COLOR_RESET << std::endl;
+                    std::cout << BG_COLOR_GREEN  << "登录成功" << COLOR_RESET  << std::endl;
+                    std::cout << COLOR_YELLOW << "欢迎！" << user_info->username << COLOR_RESET << std::endl;
                     break;
                 }
                 case 2002: // 登录失败
                     user_info->logout();
-                    std::cout << std::endl << BG_COLOR_RED  << "登录失败。" << COLOR_RESET  << std::endl;
+                    std::cout << BG_COLOR_RED  << "登录失败。" << COLOR_RESET  << std::endl;
                     break;
                 case 3001: { // 在线用户列表
                     chat::GetOnlineUsersResponse response;
@@ -330,41 +332,44 @@ void receiveMessage(int sockfd, UserInfo *user_info) {
                             << ", Account: " << user.account() << std::endl;
                         }
                     }else{
-                        perror("online: Failed to parse Protobuf message!")
+                        perror("online: Failed to parse Protobuf message!");
                     }
+                    break;
+                }
+                case 3002:{
+                    std::cout << std::endl << msg.message() << std::endl;
                     break;
                 }
                 // 消息发送状态处理
                 case 4001: {
-                    std::cout << std::endl << "✓ 消息已送达: " << msg.message() << std::endl;
+                    std::cout << "✓ 消息已送达: " << msg.message() << std::endl;
                     break;
                 }
                 case 4002: {
-                    std::cout << std::endl << "✗ 发送失败: " << msg.message() << std::endl;
+                    std::cout << "✗ 发送失败: " << msg.message() << std::endl;
                     break;
                 }
                 // 接收消息处理
                 case 4010: {
                     chat::ReceivedMessage rmsg;
-                    if(msg.ParseFromString(received_data)){
-                        if(sender != user_info->account)
-                            std::cout << std::endl << COLOR_BLUE << "[来自 " << sender << " 的消息] " << std::endl;
-                        std::cout << COLOR_RESET << message << std::endl;
+                    if(rmsg.ParseFromString(received_data)){
+                        if(rmsg.account() != user_info->account)
+                            std::cout << COLOR_BLUE << "[来自 " << rmsg.account() << " 的消息] " << std::endl;
+                        std::cout << COLOR_RESET << rmsg.message() << std::endl;
                     }
                     else {
-                        std::cerr << std::endl << "收到格式错误的消息" << std::endl;
+                        std::cerr << "收到格式错误的消息" << std::endl;
                     }
                     break;
                 }
                 case 5001:
                     user_info->logout();
-                    std::cout << std::endl << "下线成功。" << std::endl;
+                    std::cout << "下线成功。" << std::endl;
                     break;
                 default:
-                    std::cout << std::endl << "[Server]: " << buffer << std::endl;
+                    std::cout << "[Server]: " << type << std::endl;
                     break;
             }
-            json_decref(root);
         } else if (bytes_received == 0) {
             std::cout << std::endl << "# 服务器关闭了连接。" << std::endl;
             running = false;

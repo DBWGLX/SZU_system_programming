@@ -35,8 +35,9 @@ void LRUTokenManager::saveToken(const std::string& account, const std::string& t
 
 bool LRUTokenManager::verifyToken(const std::string& account, const std::string& token) {
     std::lock_guard<std::mutex> lock(mapMutex);
-    auto it = tokenMap.find(account);
-    if (it == tokenMap.end()) return false;
+    auto it = tokenMap.find(account);//此时是map的kv
+    if (it == tokenMap.end() || it->second.first.token != token) 
+        return false;
 
     lruList.erase(it->second.second);
     lruList.push_front(account);

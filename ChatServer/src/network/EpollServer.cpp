@@ -105,7 +105,7 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
             inet_ntop(AF_INET, &(clientAddr.sin_addr), clientIp, INET_ADDRSTRLEN);
             int clientPort = ntohs(clientAddr.sin_port);
             std::ostringstream oss;
-            oss << "📨 收到来自客户端的连接请求: IP = " << clientIp << ", 端口 = " << clientPort << "  服务器分配的 clientFd 为：" << clientFd;
+            oss << "📨 收到客户端连接请求: IP: " << clientIp << ", 端口: " << clientPort << ", clientFd:" << clientFd;
             info_str(oss.str());
 
             epoll_event clientEvent{};
@@ -129,7 +129,7 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
             inet_ntop(AF_INET, &(clientAddr.sin_addr), clientIp, INET_ADDRSTRLEN);
             int clientPort = ntohs(clientAddr.sin_port);
             std::ostringstream oss;
-            oss << "📨 收到来自客户端的消息: IP = " << clientIp << ", 端口 = " << clientPort << "  服务器分配的 clientFd 为：" << events[i].data.fd;
+            oss << "📨 收到客户端消息: IP: " << clientIp << ", 端口: " << clientPort << ", clientFd: " << events[i].data.fd;
             info_str(oss.str());
 
             threadPool->enqueue(new ClientTask(events[i].data.fd, epollFd, &dbop, &LRUm));

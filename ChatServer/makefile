@@ -22,7 +22,7 @@ LIBS = -lmysqlcppconn -L /home/wyx/work/Cpp-Logging-Component-on-Independent-Thr
 SRCS := $(shell find $(SRC_DIR) -type f \( -name "*.cpp" -o -name "*.cc" \))
 OBJS := $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
 
-TARGET = $(BIN_DIR)/chatserver_wyx
+TARGET = $(BIN_DIR)/chatserver_wyx.out
 
 # 目标
 all: $(TARGET)
