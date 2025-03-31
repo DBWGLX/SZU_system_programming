@@ -1,4 +1,7 @@
 #include <string>
+#include <stdexcept>  // 包含 std::runtime_error 定义
+#include <sstream>    // 包含 std::ostringstream 定义
+#include <iomanip>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 

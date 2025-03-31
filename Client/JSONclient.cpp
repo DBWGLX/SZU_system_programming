@@ -8,8 +8,8 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <jansson.h>
 #include <iomanip>
-#include "chat.pb.h"
 
 #define SERVER_PORT 8080
 
@@ -34,8 +34,6 @@
 #define COLOR_RESET  "\033[0m"
 
 #define CommandLinePrompt "\033[32m[ChatClient]$\033[0m "
-
-#define PROTOBUF_KEY 0x12345678  // K固定为0x12345678
 
 std::atomic<bool> running(true);
 
@@ -78,37 +76,6 @@ std::string now(){
     return str.str();
 }
 
-ssize_t sendAll(int sockfd, const char* data, size_t len) {
-    size_t totalSent = 0;
-    while (totalSent < len) {
-        ssize_t sent = send(sockfd, data + totalSent, len - totalSent, 0);
-        
-        if (sent == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                usleep(1000);  // 发送缓冲区满时，等待 1ms 再尝试
-                continue;
-            } else {
-                perror("send failed");
-                return -1;  // 发送失败
-            }
-        } else if (sent == 0) {
-            std::cerr << "连接关闭！" << std::endl;
-            return -1;
-        }
-
-        totalSent += sent;
-    }
-    return totalSent;
-}
-ssize_t ClientTask::PROTOBUF_sendAll(int sockfd, std::string serialized_data){// KLV打包
-    uint32_t key = htonl(PROTOBUF_KEY);
-    uint32_t length = htonl(serialized_data.size());
-    std::string packet;
-    packet.append(reinterpret_cast<const char*>(&key), sizeof(key));  // K
-    packet.append(reinterpret_cast<const char*>(&length), sizeof(length));  // L
-    packet.append(serialized_data);  // V（Protobuf 数据）
-    return sendAll(sockfd, packet.data(), packet.size());
-}
 //操作端
 void sendMessage(int sockfd, UserInfo *user_info) {
     printf("# 输入'/help'以获取帮助\n");
@@ -126,22 +93,20 @@ void sendMessage(int sockfd, UserInfo *user_info) {
                 std::cout << "未登录，无法发送下线请求。" << std::endl;
                 continue;
             }
-            chat::LogoutRequest msg;
-            msg.set_type(5000);
-            msg.set_account(current_account);
-            msg.set_token(current_token.c_str());
-            
-            //序列化
-            std::string serialized_data;
-            if(!msg.SerializeToString(&serialized_data)){
-                perror("quit:Protobuf 序列化失败！");
-                return -1;
-            }
 
-            if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
-                perror("quit: send error");
+            json_t *root = json_object();
+            json_object_set_new(root, "type", json_integer(5000));
+            json_object_set_new(root, "account", json_string(current_account.c_str()));
+            json_object_set_new(root, "token", json_string(current_token.c_str()));
+            
+            char *json_str = json_dumps(root, JSON_COMPACT);
+            if(send(sockfd, json_str, strlen(json_str), 0) == -1){
+                perror("send error");
             }
             
+            free(json_str);
+            json_decref(root);
+
             running = false;
             shutdown(sockfd, SHUT_RD);
             break;
@@ -158,23 +123,20 @@ void sendMessage(int sockfd, UserInfo *user_info) {
             std::cout << "请输入邮箱: ";
             std::getline(std::cin, email);
 
-            chat::RegisterRequest msg;
-            msg.set_type(1000);
-            msg.set_account(account);
-            msg.set_password(password);
-            msg.set_username(username);
-            msg.set_phone_number(phone);
-            msg.set_email(email);
+            json_t *root = json_object();
+            json_object_set_new(root, "type", json_integer(1000));
+            json_object_set_new(root, "account", json_string(account.c_str()));
+            json_object_set_new(root, "password", json_string(password.c_str()));
+            json_object_set_new(root, "username", json_string(username.c_str()));
+            json_object_set_new(root, "phone_number", json_string(phone.c_str()));
+            json_object_set_new(root, "email", json_string(email.c_str()));
             
-            std::string serialized_data;
-            if(!msg.SerializeToString(&serialized_data)){
-                perror("register:Protobuf 序列化失败！");
-                return -1;
+            char *json_str = json_dumps(root, JSON_COMPACT);
+            if(send(sockfd, json_str, strlen(json_str), 0) == -1){
+                perror("send error");
             }
-
-            if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
-                perror("register: send error");
-            }
+            free(json_str);
+            json_decref(root);
         } else if (command == "/login" || command == "/l") {
             std::string account, password;
             std::cout << "请输入账号: ";
@@ -182,26 +144,22 @@ void sendMessage(int sockfd, UserInfo *user_info) {
             std::cout << "请输入密码: ";
             std::getline(std::cin, password);
 
-            //{
-            //    std::lock_guard<std::mutex> lock(user_info->mutex);
+            {
+                std::lock_guard<std::mutex> lock(user_info->mutex);
                 user_info->account = account;
-            //}
-
-            chat::LoginRequest msg;
-            msg.set_type(2000);
-            msg.set_account(account);
-            msg.set_password(password);
-
-            std::string serialized_data;
-            if(!msg.SerializeToString(&serialized_data)){
-                perror("login:Protobuf 序列化失败！");
-                return -1;
             }
 
-            if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
-                perror("login: send error");
+            json_t *root = json_object();
+            json_object_set_new(root, "type", json_integer(2000));
+            json_object_set_new(root, "account", json_string(account.c_str()));
+            json_object_set_new(root, "password", json_string(password.c_str()));
+            
+            char *json_str = json_dumps(root, JSON_COMPACT);
+            if(send(sockfd, json_str, strlen(json_str), 0) == -1){
+                perror("send error");
             }
-
+            free(json_str);
+            json_decref(root);
         } else if (command == "/online" || command == "/o") {
             auto [current_account, current_token] = user_info->getCredentials();
             if (current_account.empty() || current_token.empty()) {
@@ -209,21 +167,17 @@ void sendMessage(int sockfd, UserInfo *user_info) {
                 continue;
             }
 
-            chat::GetOnlineUsersRequest msg;
-            msg.set_type(3000);
-            msg.set_account(current_account);
-            msg.set_token(current_token);
-
-            std::string serialized_data;
-            if(!msg.SerializeToString(&serialized_data)){
-                perror("online:Protobuf 序列化失败！");
-                return -1;
-            }
-
-            if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
-                perror("online: send error");
-            }
+            json_t *root = json_object();
+            json_object_set_new(root, "type", json_integer(3000));
+            json_object_set_new(root, "account", json_string(current_account.c_str()));
+            json_object_set_new(root, "token", json_string(current_token.c_str()));
             
+            char *json_str = json_dumps(root, JSON_COMPACT);
+            if(send(sockfd, json_str, strlen(json_str), 0) == -1){
+                perror("send error");
+            }
+            free(json_str);
+            json_decref(root);
         } else if (command == "/send" || command == "/s") {
             auto [current_account, current_token] = user_info->getCredentials();
             if (current_account.empty() || current_token.empty()) {
@@ -238,23 +192,19 @@ void sendMessage(int sockfd, UserInfo *user_info) {
             std::getline(std::cin, message);
             message = "[" + now() + "] " + COLOR_YELLOW + user_info->username + COLOR_RESET + ": " + message;
 
-            chat::ChatMessage msg;
-            msg.set_type(4000);
-            msg.set_account(current_account);
-            msg.set_token(current_token);
-            msg.set_receiver_useraccount(receiver);
-            msg.set_message(message);
-
-            std::string serialized_data;
-            if(!msg.SerializeToString(&serialized_data)){
-                perror("online:Protobuf 序列化失败！");
-                return -1;
+            json_t *root = json_object();
+            json_object_set_new(root, "type", json_integer(4000));
+            json_object_set_new(root, "account", json_string(current_account.c_str()));
+            json_object_set_new(root, "token", json_string(current_token.c_str()));
+            json_object_set_new(root, "receiver_useraccount", json_string(receiver.c_str()));
+            json_object_set_new(root, "message", json_string(message.c_str()));
+            
+            char *json_str = json_dumps(root, JSON_COMPACT);
+            if(send(sockfd, json_str, strlen(json_str), 0) == -1){
+                perror("send error");
             }
-
-            if(PROTOBUF_sendAll(sockfd, serialized_data) <= 0){
-                perror("online: send error");
-            }
-                       
+            free(json_str);
+            json_decref(root);
         } else if (command == "/help" || command == "/h"){
             std::cout << "/register: " << "注册" 
             << std::endl << "/login: " << "登录"
@@ -270,88 +220,117 @@ void sendMessage(int sockfd, UserInfo *user_info) {
 
 //接收端
 void receiveMessage(int sockfd, UserInfo *user_info) {
+    char buffer[1024];
     while (running) {
-        uint32_t key;
-        if (recv(sockfd, &key, sizeof(key), 0) > 0){ 
-            key = ntohl(key); //PROTOBUF_KEY
+        ssize_t bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
+        if (bytes_received > 0) {
+            buffer[bytes_received] = '\0';
+            json_error_t error;
+            json_t *root = json_loads(buffer, 0, &error);
 
-            uint32_t length;
-            if (recv(sockfd, &length, sizeof(length), 0) <= 0) continue;
-            length = ntohl(length);
-
-            //读取
-            std::string received_data(length, '\0');
-            if (recv(sockfd, &received_data[0], length, 0) <= 0) continue;
-
-            chat::Response msg; // 只用一下type字段
-            if (!msg.ParseFromString(received_data)) {
-                fatal_str("Failed to parse protobuf message!");
+            if (!root) {
+                fprintf(stderr, "JSON解析错误: %s\n", error.text);
                 continue;
             }
 
-            int type = msg.type();
+            json_t *type_obj = json_object_get(root, "type");
+            if (!json_is_integer(type_obj)) {
+                fprintf(stderr, "无效的type字段\n");
+                json_decref(root);
+                continue;
+            }
+
+            int type = json_integer_value(type_obj);
             switch (type) {
                 // 注册响应处理
                 case 1001: {
-                    std::cout << std::endl << BG_COLOR_GREEN << "注册成功: " << Response.message()
-                        << COLOR_RESET << std::endl;
+                    json_t *msg_obj = json_object_get(root, "message");
+                    if (json_is_string(msg_obj)) {
+                        std::cout << std::endl << BG_COLOR_GREEN << "注册成功: " << json_string_value(msg_obj) 
+                            << COLOR_RESET << std::endl;
+                    }
                     break;
                 }
                 case 1002: {
-                    std::cout << std::endl << BG_COLOR_RED << "注册失败: " << Response.message()
-                        << COLOR_RESET << std::endl;
+                    json_t *msg_obj = json_object_get(root, "message");
+                    if (json_is_string(msg_obj)) {
+                        std::cout << std::endl << BG_COLOR_RED << "注册失败: " << json_string_value(msg_obj) 
+                            << COLOR_RESET << std::endl;
+                    }
                     break;
                 }
                 case 2001: { // 登录成功
-                    chat::LoginResponse loginmsg;
-                    if (!loginmsg.ParseFromString(received_data)) {
-                        fatal_str("login: Failed to parse protobuf message!");
-                        continue;
+                    json_t *token_obj = json_object_get(root, "message");
+                    if (json_is_string(token_obj)) {
+                        const char *token = json_string_value(token_obj);
+                        user_info->setToken(token);
+                        std::cout << std::endl << BG_COLOR_GREEN  << "登录成功" << COLOR_RESET  << std::endl;
                     }
-                    user_info->setToken(loginmsg.token());
-                    user_info->username = loginmsg.username();
-
-                    std::cout << std::endl << BG_COLOR_GREEN  << "登录成功" << COLOR_RESET  << std::endl;
-                    std::cout << std::endl << COLOR_YELLOW << "欢迎！" << user_info->username << COLOR_RESET << std::endl;
                     break;
                 }
                 case 2002: // 登录失败
                     user_info->logout();
                     std::cout << std::endl << BG_COLOR_RED  << "登录失败。" << COLOR_RESET  << std::endl;
                     break;
-                case 3001: { // 在线用户列表
-                    chat::GetOnlineUsersResponse response;
-                    if (response.ParseFromString(received_data)) {
-                        std::cout << "Received Online Users List:\n";
-                        size_t index = 0;
-  
-                        for (const auto& user : response.users()) {
-                            std::cout << index++ << ". " << "Name: " << COLOR_YELLOW << user.name() << COLOR_RESET 
-                            << ", Account: " << user.account() << std::endl;
+                case 2011:{
+                    json_t *token_obj = json_object_get(root, "message");
+                    if (json_is_string(token_obj)) {
+                        const char *token = json_string_value(token_obj);
+                        {
+                            std::lock_guard<std::mutex> lock(user_info->mutex);
+                            user_info->username = token;
                         }
-                    }else{
-                        perror("online: Failed to parse Protobuf message!")
+                        std::cout << std::endl << COLOR_YELLOW << "欢迎！" << token << COLOR_RESET << std::endl;
+                    }
+                    break;
+                }
+                case 3001: { // 在线用户列表
+                    json_t *users = json_object_get(root, "users");
+                    if (json_is_array(users)) {
+                        std::cout << std::endl << "在线用户列表：" << std::endl;
+                        size_t index;
+                        json_t *value;
+                        json_array_foreach(users, index, value) {
+                            const char *name = json_string_value(json_object_get(value, "name"));
+                            const char *account = json_string_value(json_object_get(value, "account"));
+                            if (name && account) {
+                                std::cout << index << ". " << "用户名: " << COLOR_YELLOW << name << COLOR_RESET 
+                                << ", 账号: " << account << std::endl;
+                            }
+                        }
                     }
                     break;
                 }
                 // 消息发送状态处理
                 case 4001: {
-                    std::cout << std::endl << "✓ 消息已送达: " << msg.message() << std::endl;
+                    json_t *msg_obj = json_object_get(root, "message");
+                    if (json_is_string(msg_obj)) {
+                        std::cout << std::endl << "✓ 消息已送达: " << json_string_value(msg_obj) << std::endl;
+                    }
                     break;
                 }
                 case 4002: {
-                    std::cout << std::endl << "✗ 发送失败: " << msg.message() << std::endl;
+                    json_t *msg_obj = json_object_get(root, "message");
+                    if (json_is_string(msg_obj)) {
+                        std::cout << std::endl << "✗ 发送失败: " << json_string_value(msg_obj) << std::endl;
+                    }
                     break;
                 }
                 // 接收消息处理
                 case 4010: {
-                    chat::ReceivedMessage rmsg;
-                    if(msg.ParseFromString(received_data)){
-                        if(sender != user_info->account)
-                            std::cout << std::endl << COLOR_BLUE << "[来自 " << sender << " 的消息] " << std::endl;
-                        std::cout << COLOR_RESET << message << std::endl;
-                    }
-                    else {
+                    const char* sender = nullptr;
+                    const char* message = nullptr;
+                    
+                    json_t *sender_obj = json_object_get(root, "account");
+                    json_t *msg_obj = json_object_get(root, "message");
+                    
+                    if (json_is_string(sender_obj)) sender = json_string_value(sender_obj);
+                    if (json_is_string(msg_obj)) message = json_string_value(msg_obj);
+                    
+                    if (sender && message) {
+                        std::cout << std::endl << COLOR_BLUE << "[来自 " << sender << " 的消息] " << std::endl
+                                << COLOR_RESET << message << std::endl;
+                    } else {
                         std::cerr << std::endl << "收到格式错误的消息" << std::endl;
                     }
                     break;

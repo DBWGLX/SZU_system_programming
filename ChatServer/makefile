@@ -13,13 +13,13 @@ VPATH = $(SRC_DIR)
 INC_DIRS := $(shell find include -type d)
 CXXFLAGS += $(addprefix -I,$(INC_DIRS))
 # 头文件路径
-INCLUDES = -I/usr/include/mysql-cppconn/jdbc
+INCLUDES = -I/usr/include/mysql-cppconn-8/jdbc
 
 # 库
-LIBS = -lmysqlcppconn -ljansson -L /root/work/MyLogger/cmake_out/lib -lasync_logger -lcrypto
+LIBS = -lmysqlcppconn -L /home/wyx/work/Cpp-Logging-Component-on-Independent-Threads/cmake_out/lib -lasync_logger -lcrypto -lprotobuf
 
 # 递归查找 src 目录下的所有 .cpp 文件
-SRCS := $(shell find $(SRC_DIR) -type f -name "*.cpp") 
+SRCS := $(shell find $(SRC_DIR) -type f \( -name "*.cpp" -o -name "*.cc" \))
 OBJS := $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
 
 TARGET = $(BIN_DIR)/chatserver_wyx

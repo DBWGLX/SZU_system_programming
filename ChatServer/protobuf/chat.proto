@@ -65,7 +65,8 @@ message ChatMessage {
 // 接收到的聊天消息
 message ReceivedMessage {
     int32 type = 1; // 4010
-    string message = 4;
+    string account = 2;
+    string message = 3;
 }
 
 // 下线请求
