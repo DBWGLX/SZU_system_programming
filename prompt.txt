@@ -2,11 +2,6 @@
 [root@CentOS-DBWGLX 5_final_assignment]# find / -name "mysql_driver.h"
 /usr/include/mysql-cppconn/jdbc/mysql_driver.h
 
-# json jansson库
--ljansson
-
-# openSSH
--lcrypto
 
 g++ test.cc MySQLConnectionPool.hpp 
 -std=c++17 
@@ -18,8 +13,18 @@ g++ test.cc MySQLConnectionPool.hpp
 -o test.out 
 
 
-# 切换GCC版本 Software Collections
+# CentOS 切换GCC版本 Software Collections
 scl enable devtoolset-8 bash  
 
 # (链接我的日志器) 临时设置终端环境变量 为动态库位置（非默认目录时）
-export LD_LIBRARY_PATH=/root/work/MyLogger/cmake_out/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/home/wyx/work/Cpp-Logging-Component-on-Independent-Threads/cmake_out/lib:$LD_LIBRARY_PATH
+
+
+# json jansson库
+-ljansson
+
+# openSSH
+-lcrypto
+
+# protoc
+protoc --cpp_out=. chat.proto

@@ -1,43 +1,5 @@
 #include "ClientTask.hpp"
-// 密码加密处理方法的定义
-std::string generateSalt(size_t length) {
-    unsigned char salt[length];
-    if (RAND_bytes(salt, length) != 1) {
-        throw std::runtime_error("Failed to generate salt");
-    }
-    return std::string(reinterpret_cast<char*>(salt), length);
-}
 
-std::string hashPassword(const std::string& password, const std::string& salt, int iterations, size_t key_len) {
-    unsigned char hash[key_len];
-    if (PKCS5_PBKDF2_HMAC(password.c_str(), password.size(),
-                        reinterpret_cast<const unsigned char*>(salt.c_str()), salt.size(),
-                        iterations, EVP_sha256(), key_len, hash) != 1) {
-        throw std::runtime_error("Failed to hash password");
-    }
-    return std::string(reinterpret_cast<char*>(hash), key_len);
-}
-
-std::string toHex(const std::string& input) {
-    std::ostringstream oss;
-    for (unsigned char c : input) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << (int)c;
-    }
-    return oss.str();
-}
-
-std::string fromHex(const std::string& input) {
-    std::string output;
-    if (input.length() % 2 != 0) {
-        throw std::invalid_argument("Invalid hex string");
-    }
-    for (size_t i = 0; i < input.length(); i += 2) {
-        std::string byteStr = input.substr(i, 2);
-        char byte = static_cast<char>(std::stoi(byteStr, nullptr, 16));
-        output.push_back(byte);
-    }
-    return output;
-}
 
 // ClientTask 类定义
 
@@ -46,98 +8,272 @@ ClientTask::ClientTask(int clientFd, int epollFd, DBOperation* dbopPtr, LRUToken
 {}
 
 void ClientTask::execute() {
-    std::string buffer;
-    while(true){
-        char recv_buffer[4096];
-        ssize_t bytesRead = recv(_clientFd, recv_buffer, sizeof(buffer), 0);
-        if(bytesRead <= 0){
-            break;
-        }
-        recv_buffer[bytesRead] = '\0';
-        buffer.append(recv_buffer,bytes_received);
+    uint32_t key;
+    if(recv(sockfd, &key, sizeof(key), 0) <= 0) return; 
+    key = ntohl(key); 
 
-        size_t pos;
-        while((pos = buffer.find("\r\n")) != std::string::npos){ // ! 处理粘包问题
-            json_t *root;
-            json_error_t error;
-            root = json_loads(buffer, 0, &error);
-            if (!root) {
-                std::cerr << "JSON parse error: " << error.text << std::endl;
-                freeFd();
-                return;
-            }
-            // 将解析后的 JSON 对象序列化为字符串并打印
-            char* json_str = json_dumps(root, JSON_INDENT(2));
-            if (json_str) {
-                debug("Parsed JSON: %s", json_str);
-                free(json_str);
-            }
-            // 读取 type 字段
-            json_t *type_json = json_object_get(root, "type");
-            if (!json_is_integer(type_json)) {
-                std::cerr << "Invalid 'type' field in JSON" << std::endl;
-                json_decref(root);
-                freeFd();
-                return;
-            }
-            int type = json_integer_value(type_json);
-            handleMessageType(type, root);
-            json_decref(root);
-        }
+    switch(key){
+        case PROTOBUF_KEY:
+            PROTOBUF_handle();
+            break; 
+        // 拓展其他字节流
     }
 }
 
-void ClientTask::handleMessageType(int type, json_t *root) {
-    switch (type) {
-        case 1000:
-            handleType1(root);
-            break;
-        case 2000:
-            handleType2(root);
-            break;
-        case 3000:
-            handleType3(root);
-            break;
-        case 4000:
-            handleType4(root);
-            break;
-        case 5000:
-            handleType5(root);
-            break;
-        default:
-            std::cerr << "Unknown message type: " << type << std::endl;
-            break;
-    }
-}
-
-ssize_t ClientTask::sendAll(int sockfd, const char* message) {
-    size_t dataLen = strlen(message);  // 数据总长度
-    size_t totalSent = 0;  // 已发送字节数
-
-    while (totalSent < dataLen) {
-        ssize_t sent = send(sockfd, message + totalSent, dataLen - totalSent, 0);
+ssize_t ClientTask::sendAll(int sockfd, const char* data, size_t len) {
+    size_t totalSent = 0;
+    while (totalSent < len) {
+        ssize_t sent = send(sockfd, data + totalSent, len - totalSent, 0);
         
         if (sent == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // 如果发生缓冲区满的情况，稍等后重试
-                usleep(1000);  // 延迟 1 毫秒再尝试发送
-                continue;  // 继续发送剩余的数据
+                usleep(1000);  // 发送缓冲区满时，等待 1ms 再尝试
+                continue;
             } else {
                 perror("send failed");
-                return -1;  // 发送失败，返回 -1
+                return -1;  // 发送失败
             }
         } else if (sent == 0) {
-            fprintf(stderr, "Connection closed by peer\n");
-            return -1;  // 连接关闭，返回 -1
+            std::cerr << "连接关闭！" << std::endl;
+            return -1;
         }
 
-        totalSent += sent;  // 累加已发送的字节数
+        totalSent += sent;
     }
-
-    return totalSent;  // 返回已发送的字节数
+    return totalSent;
 }
 
-ssize_t ClientTask::sendResult(int sockfd, int type, const char* message) {
+void PROTOBUF_handle(){
+    uint32_t length;
+    if (recv(sockfd, &length, sizeof(length), 0) <= 0) return;
+    length = ntohl(length);
+
+    //读取
+    std::string received_data(length, '\0');
+    if (recv(sockfd, &received_data[0], length, 0) <= 0) return;
+
+    chat::ChatMessage msg; // 只用一下type字段
+    if (!msg.ParseFromString(received_data)) {
+        fatal_str("Failed to parse protobuf message!");
+        return;
+    }
+
+    PROTOBUF_handleMessageType(msg.type(),received_data);
+}
+
+
+ssize_t ClientTask::PROTOBUF_sendAll(int sockfd, std::string serialized_data){// KLV打包
+    uint32_t key = htonl(PROTOBUF_KEY);
+    uint32_t length = htonl(serialized_data.size());
+    std::string packet;
+    packet.append(reinterpret_cast<const char*>(&key), sizeof(key));  // K
+    packet.append(reinterpret_cast<const char*>(&length), sizeof(length));  // L
+    packet.append(serialized_data);  // V（Protobuf 数据）
+    return sendAll(sockfd, packet.data(), packet.size());
+}
+
+ssize_t ClientTask::PROTOBUF_sendResult(int sockfd = _clientFd, int type, const char* message){
+    chat::Response msg;
+    msg.set_type(type);
+    msg.set_message(message);
+
+    //序列化
+    std::string serialized_data;
+    if(!msg.SerializeToString(&serialized_data)){
+        fatal_str("Protobuf 序列化失败！");
+        return -1;
+    }
+    return PROTOBUF_sendAll(sockfd, serialized_data);
+}
+ssize_t ClientTask::PROTOBUF_sendLoginResult(int sockfd = _clientFd, std::string& username, std::string& token){
+    chat::LoginResponse msg;
+    msg.set_type(2001);
+    msg.set_username(username);
+    msg.set_token(token);
+
+    //序列化
+    std::string serialized_data;
+    if(!msg.SerializeToString(&serialized_data)){
+        fatal_str("Protobuf 序列化失败！");
+        return -1;
+    }
+    return PROTOBUF_sendAll(sockfd, serialized_data);
+}
+ssize_t ClientTask::PROTOBUF_sendUsersInfo(int sockfd = _clientFd, const std::vector<std::pair<std::string, std::string>>& users) {
+    chat::GetOnlineUsersResponse response;
+    response.set_type(3001); 
+
+    for(auto&x:users){
+        chat::UserInfo* user1 = response.add_users();
+        user1->set_name(x.first);
+        user1->set_account(x.second);
+    }
+
+    std::string serialized_data;
+    if(!response.SerializeToString(&serialized_data)){
+        fatal_str("Protobuf 序列化失败！");
+        return -1;
+    }
+    return PROTOBUF_sendAll(sockfd, serialized_data);
+}
+ssize_t ClientTask::PROTOBUF_sendChatMessage(int sockfd, const string& message){
+    chat::ReceivedMessage response;
+    response.set_type(4010);
+    response.set_message(message);
+
+    std::string serialized_data;
+    if(!response.SerializeToString(&serialized_data)){
+        fatal_str("Protobuf 序列化失败！");
+        return -1;
+    }
+    return PROTOBUF_sendAll(sockfd, serialized_data);
+}
+
+void ClientTask::PROTOBUF_handleMessageType(int type, const std::string& msg) {
+    switch (type) {
+        case 1000:
+            PROTOBUF_handleType1(msg);
+            break;
+        case 2000:
+            PROTOBUF_handleType2(msg);
+            break;
+        case 3000:
+            PROTOBUF_handleType3(msg);
+            break;
+        case 4000:
+            PROTOBUF_handleType4(msg);
+            break;
+        case 5000:
+            PROTOBUF_handleType5(msg);
+            break;
+        default:
+            ostringstream oss;
+            oss << "Unknown message type: " << msg.type();
+            fatal_str(oss.str());
+            break;
+    }
+}
+void ClientTask::PROTOBUF_handleType1(const std::string& received_data) {
+    chat::RegisterRequest msg;
+    if (!msg.ParseFromString(received_data)) {
+        std::cerr << "Failed to parse base message!" << std::endl;
+        return;
+    }
+
+    User user(msg.account(), msg.password(), msg.username(), msg.phone_number(), msg.email());
+    int res = _dbopPtr->addUser(user);
+    if(res == 0)
+        PROTOBUF_sendResult(_clientFd, 1001, "success");
+    else 
+        PROTOBUF_sendResult(_clientFd, 1002, "fail");
+}
+void ClientTask::PROTOBUF_handleType2(const std::string& received_data) {
+    chat::LoginRequest msg;
+    if (!msg.ParseFromString(received_data)) {
+        std::cerr << "Failed to parse base message!" << std::endl;
+        PROTOBUF_sendResult(_clientFd, 2002, "login error");
+        return;
+    }
+    string account = msg.account();
+    bool res = _dbopPtr->verifyUser(account, msg.password());
+    if(res){
+        //登录成功，获取token
+        std::string username = _dbopPtr->getUsername(account); 
+        std::string token = _LRUm->generate_token();
+        _LRUm->saveToken(account, token, username, _clientFd);
+        PROTOBUF_sendLoginResult(_clientFd, username, token);
+
+        //发送离线时接收的消息
+        bool flag = true;
+        std::vector<std::string> strs = _dbopPtr->getMessage(account);
+        for(auto& str: strs){
+            // 发送消息
+            if (PROTOBUF_sendChatMessage(_clientFd, str) == -1) {
+                perror("Failed to send history msg\n");
+                flag = false;
+            }
+        }
+        if(flag){
+            _dbopPtr->deleteMessage(account);
+        }
+    }
+    else
+        PROTOBUF_sendResult(_clientFd, 2002, "fail");
+}
+void ClientTask::PROTOBUF_handleType3(const std::string& received_data){
+    chat::GetOnlineUsersRequest msg;
+    if (!msg.ParseFromString(received_data)) {
+        std::cerr << "Failed to parse base message!" << std::endl;
+        return;
+    }
+
+    // 验证 token
+    if (!_LRUm->verifyToken(account, msg.token())) {
+        std::cerr << "Invalid or expired token" << std::endl;
+        sendResult(_clientFd, 3002, "Invalid or expired token, try relog please.");
+        return;
+    }
+    // 获取在线用户列表
+    std::vector<std::pair<std::string, std::string>> userPairs = _LRUm->getAllUsers();
+    PROTOBUF_sendUsersInfo(_clientFd, userPairs);
+}
+void ClientTask::PROTOBUF_handleType4(const std::string& received_data){
+    chat::ChatMessage msg;
+    if (!msg.ParseFromString(received_data)) {
+        std::cerr << "Failed to parse base message!" << std::endl;
+        return;
+    }
+
+    // 验证 token
+    if (!_LRUm->verifyToken(account, msg.token())) {
+        std::cerr << "Invalid or expired token" << std::endl;
+        sendResult(_clientFd, 4002, "Invalid or expired token");
+        return;
+    }
+
+    PROTOBUF_sendResult(_clientFd, 4001, "chat message sent success");
+
+    // 获取接收者的文件描述符
+    int receiver = msg.receiver_useraccount();
+    int receiver_fd = _LRUm->getUserFd(receiver);
+    if (receiver_fd == -1) { // 不在线
+        _dbopPtr->addMessage(account , receiver, msg.message());
+        perror("Failed to send result\n");
+    }
+    else if (PROTOBUF_sendChatMessage(receiver_fd, msg.message()) == -1) {
+        _dbopPtr->addMessage(account, receiver, msg.message());
+        perror("Failed to send result\n");
+    }
+}
+void ClientTask::PROTOBUF_handleType5(const std::string& received_data){
+    chat::LogoutRequest msg;
+    if (!msg.ParseFromString(received_data)) {
+        std::cerr << "Failed to parse base message!" << std::endl;
+        return;
+    }
+
+    if (!_LRUm->verifyToken(account, msg.token())) {
+        std::cerr << "Invalid or expired token" << std::endl;
+        sendResult(_clientFd, 5002, "Invalid or expired token");
+        return;
+    }
+    if (!_LRUm->logout(account)) {
+        std::cerr << "user may had logged out" << std::endl;
+        sendResult(_clientFd, 5002, "user may had logged out");
+        return;
+    }
+    std::ostringstream oss;
+    oss << "User " << account << " logged out successfully" << std::endl;
+    info_str(oss.str());
+
+    sendResult(_clientFd, 5001, "success");
+    freeFd();
+}
+
+
+
+// JSON
+ssize_t ClientTask::JSON_sendResult(int sockfd, int type, const char* message) {
     // 使用 jansson 创建 JSON 对象
     json_t *response = json_object();  // jansson 的创建对象函数
 
@@ -180,8 +316,7 @@ ssize_t ClientTask::sendResult(int sockfd, int type, const char* message) {
     json_decref(response);  // 释放 JSON 对象
     return totalSent;  // 返回已发送的字节数
 }
-
-int ClientTask::sendUsersInfo(int clientFd, const std::vector<std::pair<std::string, std::string>>& users) {
+int ClientTask::JSON_sendUsersInfo(int clientFd, const std::vector<std::pair<std::string, std::string>>& users) {
     // 创建一个 JSON 对象，包含 "type" 和 "users" 字段
     json_t *response = json_object();
     
@@ -221,9 +356,29 @@ int ClientTask::sendUsersInfo(int clientFd, const std::vector<std::pair<std::str
     json_decref(response);  // 释放 JSON 对象的内存
     return -1;  // 序列化失败，返回失败
 }
-
-//注册
-void ClientTask::handleType1(json_t *root) {
+void ClientTask::JSON_handleMessageType(int type, json_t *root) {
+    switch (type) {
+        case 1000:
+            JSON_handleType1(root);
+            break;
+        case 2000:
+            JSON_handleType2(root);
+            break;
+        case 3000:
+            JSON_handleType3(root);
+            break;
+        case 4000:
+            JSON_handleType4(root);
+            break;
+        case 5000:
+            JSON_handleType5(root);
+            break;
+        default:
+            std::cerr << "Unknown message type: " << type << std::endl;
+            break;
+    }
+}
+void ClientTask::JSON_handleType1(json_t *root) {
     // 解析 account 字段
     json_t *account_json = json_object_get(root, "account");
     if (!json_is_string(account_json)) {
@@ -272,9 +427,7 @@ void ClientTask::handleType1(json_t *root) {
     else 
         sendResult(_clientFd, 1002, "fail");
 }
-
-//登录
-void ClientTask::handleType2(json_t *root) {
+void ClientTask::JSON_handleType2(json_t *root) {
     // 解析 account 字段
     json_t *account_json = json_object_get(root, "account");
     if (!json_is_string(account_json)) {
@@ -331,9 +484,7 @@ void ClientTask::handleType2(json_t *root) {
     else
         sendResult(_clientFd, 2002, "fail");
 }
-
-//获取在线用户列表
-void ClientTask::handleType3(json_t *root){
+void ClientTask::JSON_handleType3(json_t *root){
     json_t *account_json = json_object_get(root, "account");
     if (!json_is_string(account_json)) {
         std::cerr << "Invalid 'account' field in JSON" << std::endl;
@@ -359,9 +510,7 @@ void ClientTask::handleType3(json_t *root){
     std::vector<std::pair<std::string, std::string>> userPairs = _LRUm->getAllUsers();
     sendUsersInfo(_clientFd, userPairs);
 }
-
-//聊天
-void ClientTask::handleType4(json_t *root){
+void ClientTask::JSON_handleType4(json_t *root){
     json_t *account_json = json_object_get(root, "account");
     if (!json_is_string(account_json)) {
         std::cerr << "Invalid 'account' field in JSON" << std::endl;
@@ -427,9 +576,7 @@ void ClientTask::handleType4(json_t *root){
     }
     free(msg); // 释放 JSON 字符串
 }
-
-//登出
-void ClientTask::handleType5(json_t *root){
+void ClientTask::JSON_handleType5(json_t *root){
     json_t *account_json = json_object_get(root, "account");
     if (!json_is_string(account_json)) {
         std::cerr << "Invalid 'account' field in JSON" << std::endl;
@@ -462,6 +609,7 @@ void ClientTask::handleType5(json_t *root){
     freeFd();
 }
 
+//
 void ClientTask::freeFd(){
     epoll_event event;
     if (epoll_ctl(_epollFd, EPOLL_CTL_DEL, _clientFd, &event) == -1) {

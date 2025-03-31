@@ -1,0 +1,85 @@
+//protoc --cpp_out=. chat.proto
+
+syntax = "proto3";
+
+package chat;
+
+// 基础响应消息
+message Response {
+    int32 type = 1;
+    string message = 2;
+}
+
+// 注册请求
+message RegisterRequest {
+    int32 type = 1; // 1000
+    string account = 2;
+    string password = 3;
+    string username = 4;
+    string phone_number = 5;
+    string email = 6;
+}
+
+// 登录请求
+message LoginRequest {
+    int32 type = 1; // 2000
+    string account = 2;
+    string password = 3;
+}
+
+// 登录成功响应
+message LoginResponse {
+    int32 type = 1; // 2001
+    string username = 2;
+    string token = 3; // token
+}
+
+// 获取在线人员请求
+message GetOnlineUsersRequest {
+    int32 type = 1; // 3000
+    string account = 2;
+    string token = 3;
+}
+
+// 在线人员信息
+message UserInfo {
+    string name = 1;
+    string account = 2;
+}
+
+// 获取在线人员响应
+message GetOnlineUsersResponse {
+    int32 type = 1; // 3001
+    repeated UserInfo users = 2;
+}
+
+// 聊天消息
+message ChatMessage {
+    int32 type = 1; // 4000
+    string account = 2;
+    string token = 3;
+    string receiver_useraccount = 4;
+    string message = 5;
+}
+
+// 接收到的聊天消息
+message ReceivedMessage {
+    int32 type = 1; // 4010
+    string message = 4;
+}
+
+// 下线请求
+message LogoutRequest {
+    int32 type = 1; // 5000
+    string account = 2;
+    string token = 3;
+}
+
+// 修改个人信息请求
+message UpdateUserInfoRequest {
+    int32 type = 1; // 6000
+    string account = 2;
+    string token = 3;
+    string phone_number = 4;
+    string username = 5;
+}

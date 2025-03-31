@@ -18,6 +18,7 @@ public:
     bool verifyToken(const std::string& account, const std::string& token);
     std::vector<std::pair<std::string, std::string>> getAllUsers();
     int getUserFd(const std::string& account);
+    string getUserName(const std::string& account)
     bool logout(const std::string& account);
 
 private:

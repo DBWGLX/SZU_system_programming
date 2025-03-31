@@ -29,7 +29,8 @@ void EpollServer::work(std::atomic<bool>& interrupted) {
         }
 
         //info_str("📨 服务器收到请求");
-        //
+        
+        //处理IO时间
         handleEpollEvents(events, readyFdCount);
 
         logger_flush();
@@ -37,6 +38,7 @@ void EpollServer::work(std::atomic<bool>& interrupted) {
 }
 
 void EpollServer::initSocket() {
+    //初始化服务器套接字
     serverFd = socket(AF_INET, SOCK_STREAM, 0);
     if (serverFd == -1) {
         perror("socket");
@@ -55,6 +57,8 @@ void EpollServer::initSocket() {
         close(serverFd);
         throw std::runtime_error("Failed to listen on socket");
     }
+
+    //初始化epoll
     epollFd = epoll_create1(0);
     if (epollFd == -1) {
         perror("epoll_create1");
@@ -62,7 +66,7 @@ void EpollServer::initSocket() {
         throw std::runtime_error("Failed to create epoll instance");
     }
 
-    //居然没添加自己哈哈
+    //epoll监听服务器
     struct epoll_event ev;
     ev.events = EPOLLIN;
     ev.data.fd = serverFd;
@@ -74,21 +78,20 @@ void EpollServer::initSocket() {
     }
 }
 
+//处理IO
 void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount){
     for (int i = 0; i < readyFdCount; i++) {
-        if(events[i].events & (EPOLLHUP | EPOLLERR)){ //异常情况处理
-            // 连接被对方关闭或发生错误
+        if(events[i].events & EPOLLERR){ // 连接半关闭状态；对方已关闭
             std::ostringstream oss;
             oss << "Client connection closed or error occurred" << std::endl;
             fatal_str(oss.str());
             int clientFd = events[i].data.fd;
-            // 从 epoll 中删除并关闭文件描述符
             if (epoll_ctl(epollFd, EPOLL_CTL_DEL, clientFd, nullptr) == -1) {
                 std::cerr << "Failed to remove clientFd from epoll instance: " << strerror(errno) << std::endl;
             }
             close(clientFd);
-        }
-        else if (events[i].data.fd == serverFd) {//服务器接收到连接请求
+        }//EPOLLHUP
+        else if (events[i].data.fd == serverFd) { //服务器接收到连接请求
             sockaddr_in clientAddr{};
             socklen_t clientAddrLen = sizeof(clientAddr);
             int clientFd = accept(serverFd, reinterpret_cast<sockaddr*>(&clientAddr), reinterpret_cast<socklen_t*>(&clientAddrLen));
@@ -97,11 +100,10 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
                 continue;
             }
 
-            // 获取客户端的 IP 地址和端口信息
+            // 打印客户端的 IP 地址和端口信息
             char clientIp[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &(clientAddr.sin_addr), clientIp, INET_ADDRSTRLEN);
             int clientPort = ntohs(clientAddr.sin_port);
-            // 构建包含客户端信息的消息
             std::ostringstream oss;
             oss << "📨 收到来自客户端的连接请求: IP = " << clientIp << ", 端口 = " << clientPort << "  服务器分配的 clientFd 为：" << clientFd;
             info_str(oss.str());
@@ -115,7 +117,7 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
                 close(clientFd);
             }
         } 
-        else {
+        else { //客户端IO
             sockaddr_in clientAddr{};
             socklen_t clientAddrLen = sizeof(clientAddr);
             // 使用 getpeername 获取客户端地址信息
@@ -123,7 +125,6 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
                 fatal_str("getpeername error");
                 continue;
             }
-            // 获取客户端的 IP 地址和端口信息
             char clientIp[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &(clientAddr.sin_addr), clientIp, INET_ADDRSTRLEN);
             int clientPort = ntohs(clientAddr.sin_port);

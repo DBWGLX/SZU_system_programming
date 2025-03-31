@@ -58,6 +58,12 @@ int LRUTokenManager::getUserFd(const std::string& account) {
     return -1;
 }
 
+string LRUTokenManager::getUserName(const std::string& account) {
+    if(tokenMap.count(account))
+        return tokenMap[account].first.username;
+    return "error";
+}
+
 bool LRUTokenManager::logout(const std::string& account) {
     if (tokenMap.find(account) != tokenMap.end()) {
         lruList.erase(tokenMap[account].second);
