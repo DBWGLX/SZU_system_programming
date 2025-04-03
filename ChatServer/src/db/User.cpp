@@ -4,17 +4,17 @@
 User::User() : _user_id(0) {}
 
 // 带有用户名和密码的构造函数
-User::User(const std::string& account, const std::string& password, const std::string& username, 
+User::User(const std::string& account, const std::string& username, const std::string& password, 
            const std::string& phone_number, const std::string& email)
     : _account(account), _username(username), _password(password), 
       _phone_number(phone_number), _email(email) {}
 
 // 完整信息的构造函数
-User::User(size_t user_id, const std::string& account, const std::string& password, 
-           const std::string& salt, const std::string& username, const std::string& phone_number,
+User::User(size_t user_id, const std::string& account, const std::string& username, 
+           const std::string& salt, const std::string& password, const std::string& phone_number,
            const std::string& email, const std::string& create_time, const std::string& last_modify_time)
-    : _user_id(user_id), _account(account), _password(password), _salt(salt),
-      _username(username), _phone_number(phone_number), _email(email),
+    : _user_id(user_id), _account(account), _username(username), _salt(salt),
+      _password(password), _phone_number(phone_number), _email(email),
       _create_time(create_time), _last_modify_time(last_modify_time) {}
 
 // Getter 方法

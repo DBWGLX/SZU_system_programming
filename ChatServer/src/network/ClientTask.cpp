@@ -3,33 +3,48 @@
 
 // ClientTask 类定义
 
-ClientTask::ClientTask(int clientFd, int epollFd, DBOperation* dbopPtr, LRUTokenManager* LRUm)
-    : _clientFd(clientFd), _epollFd(epollFd), _dbopPtr(dbopPtr), _LRUm(LRUm)
+ClientTask::ClientTask(int clientFd, int epollFd, DBOperation* dbopPtr, LRUTokenManager* LRUm, std::set<int>* ss)
+    : _clientFd(clientFd), _epollFd(epollFd), _dbopPtr(dbopPtr), _LRUm(LRUm), _ss(ss)
 {}
+
+bool ClientTask::recvAll(int sockfd, void* buffer, size_t len){
+    size_t totalReceived = 0;
+    char* buf = (char*)buffer;
+    while(totalReceived < len){
+        ssize_t received = recv(sockfd, buf + totalReceived, len - totalReceived, 0);
+        if(received <= 0) return false;
+        totalReceived += received;
+    }
+    return true;
+}
 
 void ClientTask::execute() {
     uint32_t key;
-    if(recv(_clientFd, &key, sizeof(key), 0) <= 0) return; 
-    key = ntohl(key); 
+    while(recvAll(_clientFd, &key, sizeof(key))) {
+        key = ntohl(key); 
 
-    switch(key){
-        case PROTOBUF_KEY:
-            PROTOBUF_handle();
-            break; 
-        // 拓展其他字节流
+        switch(key){
+            case PROTOBUF_KEY:
+                PROTOBUF_handle();
+                break; 
+            // 拓展其他字节流
+        }
     }
+    _ss->erase(_clientFd);
 }
+
 
 void ClientTask::PROTOBUF_handle(){
     uint32_t length;
-    if (recv(_clientFd, &length, sizeof(length), 0) <= 0) return;
+    if (!recvAll(_clientFd, &length, sizeof(length))) return;
+
     length = ntohl(length);
+    debug_str("收到报文长度" + std::to_string(length));
 
     //读取
     std::string received_data(length, '\0');
-    if (recv(_clientFd, &received_data[0], length, 0) <= 0) return;
-
-    debug_str("protobuf: " + received_data);
+    if (!recvAll(_clientFd, &received_data[0], length)) return;
+    debug_str("protobuf: " + received_data.substr(0,50)); // 防止日志过载
 
     chat::ChatMessage msg; // 只用一下type字段
     if (!msg.ParseFromString(received_data)) {
@@ -37,7 +52,7 @@ void ClientTask::PROTOBUF_handle(){
         return;
     }
 
-    PROTOBUF_handleMessageType(msg.type(),received_data);
+    PROTOBUF_handleMessageType(msg.type(),received_data); 
 }
 
 
@@ -218,6 +233,7 @@ void ClientTask::PROTOBUF_handleType3(const std::string& received_data){
     }
     // 获取在线用户列表
     std::vector<std::pair<std::string, std::string>> userPairs = _LRUm->getAllUsers();
+    debug_str("current user number: " + std::to_string(userPairs.size()));
     PROTOBUF_sendUsersInfo(_clientFd, userPairs);
 }
 void ClientTask::PROTOBUF_handleType4(const std::string& received_data){

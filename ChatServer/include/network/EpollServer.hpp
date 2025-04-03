@@ -12,7 +12,7 @@
 #include "User.hpp"
 #include "LRUTokenManager.hpp"
 #include "ClientTask.hpp"//服务器线程任务
-
+#include <set>
 // 数据库配置宏
 #define DB_HOST "tcp://127.0.0.1:3306"
 #define DB_USER "root"
@@ -38,4 +38,6 @@ private:
     MySQLConnectionPool mysqlPool;
     DBOperation dbop;
     LRUTokenManager LRUm;
+
+    std::set<int>ss;//正在处理的socket
 };

@@ -20,8 +20,6 @@ void EpollServer::work(std::atomic<bool>& interrupted) {
         int readyFdCount = epoll_wait(epollFd, events, 10, -1);
         if (readyFdCount == -1) {
             if (errno == EINTR) {
-                std::cerr << "epoll_wait interrupted by signal SIGINT." << std::endl;
-                fatal_str("🛑 Service terminated.");
                 continue; // 被信号中断，直接继续循环检查 interrupted
             }
             throw std::runtime_error("epoll_wait error");
@@ -35,48 +33,13 @@ void EpollServer::work(std::atomic<bool>& interrupted) {
 
         logger_flush();
     }
-}
-
-void EpollServer::initSocket() {
-    //初始化服务器套接字
-    serverFd = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverFd == -1) {
-        perror("socket");
-        throw std::runtime_error("Failed to create socket");
-    }
-    struct sockaddr_in serverAddr{};
-    memset(&serverAddr, 0, sizeof(serverAddr));
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY; //服务器会绑定到所有可用的网络接口（即本机的所有 IP 地址）
-    serverAddr.sin_port = htons(SERVER_PORT);
-    if (bind(serverFd,  (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
-        close(serverFd);
-        throw std::runtime_error("Failed to bind socket");
-    }
-    if (listen(serverFd, SOMAXCONN) == -1) {
-        close(serverFd);
-        throw std::runtime_error("Failed to listen on socket");
-    }
-
-    //初始化epoll
-    epollFd = epoll_create1(0);
-    if (epollFd == -1) {
-        perror("epoll_create1");
-        close(serverFd);
-        throw std::runtime_error("Failed to create epoll instance");
-    }
-
-    //epoll监听服务器
-    struct epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd = serverFd;
-    if (epoll_ctl(epollFd, EPOLL_CTL_ADD, serverFd , &ev) == -1) {
-        perror("epoll_ctl");
-        close(serverFd);
-        close(epollFd);
-        throw std::runtime_error("Failed to epoll_add serverFd");
+    
+    if (errno == EINTR) {
+        std::cerr << "epoll_wait interrupted by signal SIGINT." << std::endl;
+        fatal_str("🛑 Service terminated.");
     }
 }
+
 
 //处理IO
 void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount){
@@ -118,6 +81,9 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
             }
         } 
         else { //客户端IO
+            if(ss.count(events[i].data.fd)) continue; // 避免多个线程 recv 同一个套接字
+            ss.insert(events[i].data.fd);
+
             sockaddr_in clientAddr{};
             socklen_t clientAddrLen = sizeof(clientAddr);
             // 使用 getpeername 获取客户端地址信息
@@ -132,7 +98,54 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
             oss << "📨 收到客户端消息: IP: " << clientIp << ", 端口: " << clientPort << ", clientFd: " << events[i].data.fd;
             info_str(oss.str());
 
-            threadPool->enqueue(new ClientTask(events[i].data.fd, epollFd, &dbop, &LRUm));
+            threadPool->enqueue(new ClientTask(events[i].data.fd, epollFd, &dbop, &LRUm, &ss));
         }
+    }
+}
+
+
+void EpollServer::initSocket() {
+    ///初始化服务器套接字
+    serverFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (serverFd == -1) {
+        perror("socket");
+        throw std::runtime_error("Failed to create socket");
+    }
+    struct sockaddr_in serverAddr{};
+    memset(&serverAddr, 0, sizeof(serverAddr));
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY; //服务器会绑定到所有可用的网络接口（即本机的所有 IP 地址）
+    serverAddr.sin_port = htons(SERVER_PORT);
+    //设置接收缓冲区
+    int recvBufSize = 16 * 1024 * 1024; // 16MB
+    setsockopt(serverFd, SOL_SOCKET, SO_RCVBUF, &recvBufSize, sizeof(recvBufSize));
+
+    if (bind(serverFd,  (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
+        close(serverFd);
+        throw std::runtime_error("Failed to bind socket");
+    }
+    if (listen(serverFd, SOMAXCONN) == -1) {
+        close(serverFd);
+        throw std::runtime_error("Failed to listen on socket");
+    }
+
+
+    ///初始化epoll
+    epollFd = epoll_create1(0);
+    if (epollFd == -1) {
+        perror("epoll_create1");
+        close(serverFd);
+        throw std::runtime_error("Failed to create epoll instance");
+    }
+
+    //epoll监听服务器
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = serverFd;
+    if (epoll_ctl(epollFd, EPOLL_CTL_ADD, serverFd , &ev) == -1) {
+        perror("epoll_ctl");
+        close(serverFd);
+        close(epollFd);
+        throw std::runtime_error("Failed to epoll_add serverFd");
     }
 }

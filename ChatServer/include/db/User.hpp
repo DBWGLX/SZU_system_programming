@@ -41,9 +41,9 @@ public:
 private:
     size_t _user_id;
     std::string _account;
-    std::string _password;
-    std::string _salt;
     std::string _username;
+    std::string _salt;
+    std::string _password;
     std::string _phone_number;
     std::string _email;
     std::string _create_time;
