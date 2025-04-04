@@ -23,13 +23,22 @@ void ClientTask::execute(DBOperation& dbop) {
     uint32_t key;
     if(recvAll(_clientFd, &key, sizeof(key))) {
         key = ntohl(key); 
-
         switch(key){
             case PROTOBUF_KEY:
                 PROTOBUF_handle();
                 break; 
             // 拓展其他字节流
         }
+    }else{// recv == 0， 对端已关闭
+        std::ostringstream oss;
+        oss << "Client processing is terminated, clientfd: " << _clientFd << std::endl;
+        info_str(oss.str());
+
+        if (epoll_ctl(_epollFd, EPOLL_CTL_DEL, _clientFd, nullptr) == -1) {
+            std::cerr << "Failed to remove clientFd from epoll instance: " << strerror(errno) << std::endl;
+        }
+        close(_clientFd);
+        return;//直接退出就行
     }
 
     // one shot

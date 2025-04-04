@@ -50,6 +50,4 @@ private:
     int _epollFd; //断开连接时用
     DBOperation* _dbopPtr;
     LRUTokenManager* _LRUm;//manager
-
-
 };
