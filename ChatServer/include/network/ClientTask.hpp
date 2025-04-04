@@ -22,8 +22,8 @@
 // 线程任务类声明
 class ClientTask : public Task {
 public:
-    ClientTask(int clientFd, int epollFd, DBOperation* dbopPtr, LRUTokenManager* LRUm, std::set<int>* ss);
-    void execute() override;//默认操作；先解析序列化方式
+    ClientTask(int clientFd, int epollFd, LRUTokenManager* LRUm, std::set<int>* ss);
+    void execute(DBOperation& dbop) override;//默认操作；先解析序列化方式
 private:
     void PROTOBUF_handle();//解析报文类型
     bool recvAll(int sockfd, void* buffer, size_t len);//保证接收完

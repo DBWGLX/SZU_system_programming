@@ -3,9 +3,7 @@
 // EpollServer 类定义
 
 EpollServer::EpollServer()
-    : threadPool(std::make_unique<ThreadPool>(4)),
-      mysqlPool(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_POOL_SIZE),
-      dbop(&mysqlPool) {
+    : threadPool(std::make_unique<ThreadPool>(4)) {
     initSocket();
 }
 
@@ -16,6 +14,8 @@ EpollServer::~EpollServer() {
 
 void EpollServer::work(std::atomic<bool>& interrupted) {
     while (!interrupted) {
+        logger_flush();
+
         struct epoll_event events[10];
         int readyFdCount = epoll_wait(epollFd, events, 10, -1);
         if (readyFdCount == -1) {
@@ -30,13 +30,10 @@ void EpollServer::work(std::atomic<bool>& interrupted) {
         
         //处理IO时间
         handleEpollEvents(events, readyFdCount);
-
-        logger_flush();
     }
     
     if (errno == EINTR) {
         std::cerr << "epoll_wait interrupted by signal SIGINT." << std::endl;
-        fatal_str("🛑 Service terminated.");
     }
 }
 
@@ -98,7 +95,7 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
             oss << "📨 收到客户端消息: IP: " << clientIp << ", 端口: " << clientPort << ", clientFd: " << events[i].data.fd;
             info_str(oss.str());
 
-            threadPool->enqueue(new ClientTask(events[i].data.fd, epollFd, &dbop, &LRUm, &ss));
+            threadPool->enqueue(new ClientTask(events[i].data.fd, epollFd, &LRUm, &ss));
         }
     }
 }

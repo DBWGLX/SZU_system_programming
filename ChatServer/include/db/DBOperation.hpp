@@ -5,13 +5,16 @@
 #include <stdexcept>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
-#include "MySQLConnectionPool.hpp"
+#include <mysql_driver.h>
+#include <mysql_connection.h>
+#include <cppconn/prepared_statement.h>
 #include "User.hpp"
 #include "Logger.hpp"
+#include "PasswordUtils.hpp"
 
 class DBOperation {
 public:
-    DBOperation(MySQLConnectionPool* pool);
+    DBOperation(std::shared_ptr<sql::Connection> conn);
     int addUser(const User& new_user);
     std::string getUsername(const std::string& account);
     bool verifyUser(const std::string& account, const std::string& inputPassword);
@@ -21,11 +24,8 @@ public:
     std::vector<std::string> getMessage(const std::string& recv_account);
     int deleteMessage(const std::string& recv_account);
 private:
-    std::string generateSalt(size_t length = 16);
-    std::string hashPassword(const std::string& password, const std::string& salt, int iterations = 10000, size_t key_len = 32);
-    std::string toHex(const std::string& input);
-    std::string fromHex(const std::string& input);
     bool verifyPassword(const std::string& password, const std::string& salt, const std::string& storedHash);
 
-    MySQLConnectionPool* _pool;
+    std::shared_ptr<sql::Connection> _conn;
+    //MySQLConnectionPool* _pool;
 };

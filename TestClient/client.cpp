@@ -313,6 +313,8 @@ int main() {
         }
     }
 
+    std::string time_start = now();
+
     UserInfo user_info;
     //std::thread sender(sendMessage, sockfd, &user_info);
     std::thread receiver(receiveMessage, std::ref(sockfds), &user_info);
@@ -327,6 +329,8 @@ int main() {
             thread.join();
         }
     }
+
+    std::cout << time_start << std::endl;
     //sleep(10000);
 
     //close(sockfd);

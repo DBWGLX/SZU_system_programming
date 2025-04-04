@@ -3,8 +3,8 @@
 
 // ClientTask 类定义
 
-ClientTask::ClientTask(int clientFd, int epollFd, DBOperation* dbopPtr, LRUTokenManager* LRUm, std::set<int>* ss)
-    : _clientFd(clientFd), _epollFd(epollFd), _dbopPtr(dbopPtr), _LRUm(LRUm), _ss(ss)
+ClientTask::ClientTask(int clientFd, int epollFd, LRUTokenManager* LRUm, std::set<int>* ss)
+    : _clientFd(clientFd), _epollFd(epollFd), _LRUm(LRUm), _ss(ss)
 {}
 
 bool ClientTask::recvAll(int sockfd, void* buffer, size_t len){
@@ -18,7 +18,8 @@ bool ClientTask::recvAll(int sockfd, void* buffer, size_t len){
     return true;
 }
 
-void ClientTask::execute() {
+void ClientTask::execute(DBOperation& dbop) {
+    _dbopPtr = &dbop;
     uint32_t key;
     while(recvAll(_clientFd, &key, sizeof(key))) {
         key = ntohl(key); 

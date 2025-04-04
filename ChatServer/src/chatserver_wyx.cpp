@@ -36,7 +36,7 @@ int main(){
 
         init();
         info_str("🟢 服务器启动");
-        LOG("\n🟢 服务器启动");
+        LOG("🟢 服务器启动");
         EpollServer eServer;
         eServer.work(interrupted);
 
@@ -45,7 +45,8 @@ int main(){
         fatal_str(e.what());
         return 1;
     }
-
+    fatal_str("🛑 Service terminated.");
+    LOG("🛑 Service terminated.");
     return 0;
 }
 

@@ -1,57 +1,53 @@
 #include "ThreadPool.hpp"
 
-ThreadPool::ThreadPool(size_t numThreads) : stop(false) {
-    pthread_mutex_init(&queueMutex, nullptr);
-    pthread_cond_init(&condition, nullptr);
+ThreadPool::ThreadPool(size_t numThreads) 
+    : mysqlPool(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_POOL_SIZE), stop(false){
 
     for (size_t i = 0; i < numThreads; ++i) {
-        pthread_t thread;
-        pthread_create(&thread, nullptr, worker, this);
-        workers.push_back(thread);
+        // pthread_t thread;
+        // pthread_create(&thread, nullptr, worker, this);
+        // workers.push_back(thread, DBOperation(mysqlPool.getConnection()));
+        workers.emplace_back(&ThreadPool::worker, this);
     }
 }
 
 ThreadPool::~ThreadPool() {
     {
-        pthread_mutex_lock(&queueMutex);
+        std::unique_lock<std::mutex> lock(queueMutex);
         stop = true;
-        pthread_cond_broadcast(&condition);
-        pthread_mutex_unlock(&queueMutex);
+        condition.notify_all();
     }
-    for (pthread_t& worker : workers) {
-        pthread_join(worker, nullptr);
+    for (std::thread& worker : workers) {
+        if (worker.joinable()) {
+            worker.join();
+        }
     }
-    pthread_mutex_destroy(&queueMutex);
-    pthread_cond_destroy(&condition);
 }
 
 void ThreadPool::enqueue(Task* task) {
-    pthread_mutex_lock(&queueMutex);
-    tasks.push(task);
-    pthread_cond_signal(&condition);
-    pthread_mutex_unlock(&queueMutex);
+    {
+        std::unique_lock<std::mutex> lock(queueMutex);
+        tasks.push(task);
+    }
+    condition.notify_one();
 }
 
-void* ThreadPool::worker(void* arg) {
-    ThreadPool* pool = static_cast<ThreadPool*>(arg);
+void ThreadPool::worker() { // void worker(ThreadPool* this, Connection conn);
+    DBOperation dbop(mysqlPool.getConnection());
     while (true) {
-        Task* task;
+        Task* task = nullptr;
         {
-            pthread_mutex_lock(&pool->queueMutex);
-            while (!pool->stop && pool->tasks.empty()) {
-                pthread_cond_wait(&pool->condition, &pool->queueMutex);
-            }
-            if (pool->stop && pool->tasks.empty()) {
-                pthread_mutex_unlock(&pool->queueMutex);
+            std::unique_lock<std::mutex> lock(queueMutex);
+            condition.wait(lock, [this] { return stop || !tasks.empty(); });
+            if (stop && tasks.empty()) {
                 break;
             }
-
-            task = pool->tasks.front();
-            pool->tasks.pop();
-            pthread_mutex_unlock(&pool->queueMutex);
+            task = tasks.front();
+            tasks.pop();
         }
-        task->execute();  // 执行任务
-        delete task;  // 任务完成后删除
+        if (task) {
+            task->execute(dbop);
+            delete task;
+        }
     }
-    return nullptr;
 }
