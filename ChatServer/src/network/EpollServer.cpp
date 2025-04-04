@@ -2,8 +2,8 @@
 
 // EpollServer 类定义
 
-EpollServer::EpollServer()
-    : threadPool(std::make_unique<ThreadPool>(4)) {
+EpollServer::EpollServer(std::atomic<bool>& interrupted)
+    : threadPool(std::make_unique<ThreadPool>(interrupted, 4)), _interrupted(interrupted){
     initSocket();
 }
 
@@ -12,8 +12,8 @@ EpollServer::~EpollServer() {
     close(serverFd);
 }
 
-void EpollServer::work(std::atomic<bool>& interrupted) {
-    while (!interrupted) {
+void EpollServer::work() {
+    while (!_interrupted) {
         logger_flush();
 
         struct epoll_event events[10];
@@ -41,7 +41,7 @@ void EpollServer::work(std::atomic<bool>& interrupted) {
 //处理IO
 void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount){
     for (int i = 0; i < readyFdCount; i++) {
-        if(events[i].events & EPOLLERR){ // 连接半关闭状态；对方已关闭
+        if(events[i].events & (EPOLLERR | EPOLLHUP)){ // 连接半关闭状态；对方已关闭
             std::ostringstream oss;
             oss << "Client connection closed or error occurred" << std::endl;
             fatal_str(oss.str());
@@ -70,17 +70,15 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
 
             epoll_event clientEvent{};
             clientEvent.data.fd = clientFd;
-            clientEvent.events = EPOLLIN| EPOLLET | EPOLLHUP | EPOLLERR;
+            clientEvent.events = EPOLLIN | EPOLLET | EPOLLHUP | EPOLLERR | EPOLLONESHOT;//
             if (epoll_ctl(epollFd, EPOLL_CTL_ADD, clientFd, &clientEvent) == -1) {
+                oss = std::ostringstream();
                 oss << "❌ 连接失败：" << clientIp << ", 端口 = " << clientPort;
                 fatal_str(oss.str());
                 close(clientFd);
             }
         } 
         else { //客户端IO
-            if(ss.count(events[i].data.fd)) continue; // 避免多个线程 recv 同一个套接字
-            ss.insert(events[i].data.fd);
-
             sockaddr_in clientAddr{};
             socklen_t clientAddrLen = sizeof(clientAddr);
             // 使用 getpeername 获取客户端地址信息
@@ -95,7 +93,7 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
             oss << "📨 收到客户端消息: IP: " << clientIp << ", 端口: " << clientPort << ", clientFd: " << events[i].data.fd;
             info_str(oss.str());
 
-            threadPool->enqueue(new ClientTask(events[i].data.fd, epollFd, &LRUm, &ss));
+            threadPool->enqueue(new ClientTask(events[i].data.fd, epollFd, &LRUm));
         }
     }
 }

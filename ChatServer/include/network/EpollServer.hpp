@@ -6,11 +6,12 @@
 #include <arpa/inet.h>
 #include <sys/epoll.h>
 #include <sstream>
+#include <set>
+#include <atomic>
 #include "ThreadPool.hpp" // class Task
 #include "User.hpp"
 #include "LRUTokenManager.hpp"
 #include "ClientTask.hpp"//服务器线程任务
-#include <set>
 
 //服务器端口
 #define SERVER_PORT 8080
@@ -18,9 +19,9 @@
 // Epoll 服务器类声明
 class EpollServer {
 public:
-    EpollServer();
+    EpollServer(std::atomic<bool>& interrupted);
     ~EpollServer();
-    void work(std::atomic<bool>& interrupted);
+    void work();
 
 private:
     void initSocket();
@@ -30,6 +31,5 @@ private:
     std::unique_ptr<ThreadPool> threadPool;
 
     LRUTokenManager LRUm;
-
-    std::set<int>ss;//正在处理的socket
+    std::atomic<bool>& _interrupted;
 };

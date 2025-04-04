@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <vector>     // For std::vector
 #include <queue>      // For std::queue
+#include <atomic>
 #include "MySQLConnectionPool.hpp"
 #include "DBOperation.hpp"
 
@@ -34,7 +35,7 @@ public:
 
 class ThreadPool{
 public:
-    ThreadPool(size_t numThreads = POOLSIZE);
+    ThreadPool(std::atomic<bool>& interrupted, size_t numThreads = POOLSIZE);
     ~ThreadPool();
     void enqueue(Task* task);
 
@@ -43,11 +44,8 @@ private:
     std::vector<std::thread> workers;
     std::mutex queueMutex;
     std::condition_variable condition;
-    //std::vector<pthread_t> workers;
-    //pthread_mutex_t queueMutex;
-    //pthread_cond_t condition;
     std::queue<Task*> tasks;//方法任务队列
 
     MySQLConnectionPool mysqlPool;
-    bool stop;
+    std::atomic<bool>& _interrupted;
 };

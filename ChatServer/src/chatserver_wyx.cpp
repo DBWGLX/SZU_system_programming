@@ -37,8 +37,8 @@ int main(){
         init();
         info_str("🟢 服务器启动");
         LOG("🟢 服务器启动");
-        EpollServer eServer;
-        eServer.work(interrupted);
+        EpollServer eServer(interrupted);
+        eServer.work();
 
     } catch(const std::exception& e){
         std::cerr << "Caught exception: " << e.what() << std::endl;

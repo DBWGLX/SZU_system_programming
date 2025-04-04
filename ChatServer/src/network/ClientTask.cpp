@@ -3,8 +3,8 @@
 
 // ClientTask 类定义
 
-ClientTask::ClientTask(int clientFd, int epollFd, LRUTokenManager* LRUm, std::set<int>* ss)
-    : _clientFd(clientFd), _epollFd(epollFd), _LRUm(LRUm), _ss(ss)
+ClientTask::ClientTask(int clientFd, int epollFd, LRUTokenManager* LRUm)
+    : _clientFd(clientFd), _epollFd(epollFd), _LRUm(LRUm)
 {}
 
 bool ClientTask::recvAll(int sockfd, void* buffer, size_t len){
@@ -21,7 +21,7 @@ bool ClientTask::recvAll(int sockfd, void* buffer, size_t len){
 void ClientTask::execute(DBOperation& dbop) {
     _dbopPtr = &dbop;
     uint32_t key;
-    while(recvAll(_clientFd, &key, sizeof(key))) {
+    if(recvAll(_clientFd, &key, sizeof(key))) {
         key = ntohl(key); 
 
         switch(key){
@@ -31,7 +31,17 @@ void ClientTask::execute(DBOperation& dbop) {
             // 拓展其他字节流
         }
     }
-    _ss->erase(_clientFd);
+
+    // one shot
+    epoll_event clientEvent{};
+    clientEvent.data.fd = _clientFd;
+    clientEvent.events = EPOLLIN | EPOLLET | EPOLLHUP | EPOLLERR | EPOLLONESHOT;//
+    if (epoll_ctl(_epollFd, EPOLL_CTL_MOD, _clientFd, &clientEvent) == -1) {
+        std::ostringstream oss;
+        oss << "❌ EPOLLONESHOT ERROR,  _clientFd:" << _clientFd;
+        fatal_str(oss.str());
+        close(_clientFd);
+    }
 }
 
 

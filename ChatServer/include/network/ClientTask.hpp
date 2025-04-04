@@ -1,6 +1,7 @@
 #pragma once
 #include <iostream>
 #include <string>
+#include <sstream>
 #include <stdio.h>
 //#include <jansson.h>
 #include <atomic>
@@ -22,7 +23,7 @@
 // 线程任务类声明
 class ClientTask : public Task {
 public:
-    ClientTask(int clientFd, int epollFd, LRUTokenManager* LRUm, std::set<int>* ss);
+    ClientTask(int clientFd, int epollFd, LRUTokenManager* LRUm);
     void execute(DBOperation& dbop) override;//默认操作；先解析序列化方式
 private:
     void PROTOBUF_handle();//解析报文类型
@@ -50,5 +51,5 @@ private:
     DBOperation* _dbopPtr;
     LRUTokenManager* _LRUm;//manager
 
-    std::set<int>* _ss;
+
 };
