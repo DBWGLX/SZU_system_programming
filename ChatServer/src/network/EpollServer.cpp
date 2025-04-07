@@ -56,8 +56,12 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
             socklen_t clientAddrLen = sizeof(clientAddr);
             int clientFd = accept(serverFd, reinterpret_cast<sockaddr*>(&clientAddr), reinterpret_cast<socklen_t*>(&clientAddrLen));
             if (clientFd == -1) {
-                perror("accept");
-                continue;
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {// 没有更多连接了
+                    continue;
+                } else {
+                    perror("accept");
+                    continue;
+                }
             }
 
             // 打印客户端的 IP 地址和端口信息
@@ -65,9 +69,16 @@ void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount
             inet_ntop(AF_INET, &(clientAddr.sin_addr), clientIp, INET_ADDRSTRLEN);
             int clientPort = ntohs(clientAddr.sin_port);
             std::ostringstream oss;
-            oss << "📨 收到客户端连接请求: IP: " << clientIp << ", 端口: " << clientPort << ", clientFd:" << clientFd;
+            oss << "🕊️ 收到客户端连接请求: IP: " << clientIp << ", 端口: " << clientPort << ", clientFd:" << clientFd;
             info_str(oss.str());
-
+            
+            
+            int flags = fcntl(clientFd, F_GETFL, 0);//获取当前标志
+            if(fcntl(clientFd, F_SETFL, flags | O_NONBLOCK)==-1){
+                oss = std::ostringstream();
+                oss << "❌ 设置非阻塞失败 clientFd:" << clientIp << ", 端口 = " << clientPort;
+                fatal_str(oss.str());
+            }
             epoll_event clientEvent{};
             clientEvent.data.fd = clientFd;
             clientEvent.events = EPOLLIN | EPOLLET | EPOLLHUP | EPOLLERR | EPOLLONESHOT;//
@@ -106,14 +117,23 @@ void EpollServer::initSocket() {
         perror("socket");
         throw std::runtime_error("Failed to create socket");
     }
+    int flags = fcntl(serverFd, F_GETFL, 0);//获取当前标志
+    if(fcntl(serverFd, F_SETFL, flags | O_NONBLOCK)==-1){
+        std::ostringstream oss;
+        oss << "❌ 设置非阻塞失败 serverFd:" << serverFd;
+        fatal_str(oss.str());
+    }
+    //设置接收缓冲区
+    int recvBufSize = 16 * 1024 * 1024; // 16MB
+    if(setsockopt(serverFd, SOL_SOCKET, SO_RCVBUF, &recvBufSize, sizeof(recvBufSize)) == -1){
+        perror("setsockopt");
+    }
+
     struct sockaddr_in serverAddr{};
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY; //服务器会绑定到所有可用的网络接口（即本机的所有 IP 地址）
     serverAddr.sin_port = htons(SERVER_PORT);
-    //设置接收缓冲区
-    int recvBufSize = 16 * 1024 * 1024; // 16MB
-    setsockopt(serverFd, SOL_SOCKET, SO_RCVBUF, &recvBufSize, sizeof(recvBufSize));
 
     if (bind(serverFd,  (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
         close(serverFd);
@@ -125,7 +145,7 @@ void EpollServer::initSocket() {
     }
 
 
-    ///初始化epoll
+    ///初始化epoll #################################################################################
     epollFd = epoll_create1(0);
     if (epollFd == -1) {
         perror("epoll_create1");

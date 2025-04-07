@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <arpa/inet.h>
+#include <chrono>
 #include "ThreadPool.hpp"
 #include "MySQLConnectionPool.hpp"
 #include "DBOperation.hpp"
@@ -17,7 +18,6 @@
 #include "ClientTask.hpp"//服务
 #include "PasswordUtils.hpp"//密码加密方法
 #include "chat.pb.h"
-#include <set>
 #define PROTOBUF_KEY 0x12345678  // K固定为0x12345678
 
 // 线程任务类声明
@@ -50,4 +50,5 @@ private:
     int _epollFd; //断开连接时用
     DBOperation* _dbopPtr;
     LRUTokenManager* _LRUm;//manager
+    std::chrono::seconds timeoutSeconds;//recv超时时间
 };

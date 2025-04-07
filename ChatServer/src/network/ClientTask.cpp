@@ -5,15 +5,33 @@
 
 ClientTask::ClientTask(int clientFd, int epollFd, LRUTokenManager* LRUm)
     : _clientFd(clientFd), _epollFd(epollFd), _LRUm(LRUm)
-{}
+{   
+    timeoutSeconds = std::chrono::seconds(2);
+}
 
 bool ClientTask::recvAll(int sockfd, void* buffer, size_t len){
     size_t totalReceived = 0;
     char* buf = (char*)buffer;
+    auto startTime = std::chrono::steady_clock::now();// std::chrono::time_point //1970 年 1 月 1 日 00:00:00 UTC
+
     while(totalReceived < len){
         ssize_t received = recv(sockfd, buf + totalReceived, len - totalReceived, 0);
-        if(received <= 0) return false;
-        totalReceived += received;
+        if (received > 0) {
+            totalReceived += received;
+        } else if (received == 0) {// 连接关闭
+            return false;
+        } else if (errno == EAGAIN || errno == EWOULDBLOCK) {// 没有数据可读，稍后重试
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsedTime = std::chrono::duration_cast<std::chrono::seconds>(currentTime - startTime).count();
+            if (elapsedTime >= timeoutSeconds.count()) {// 超时
+                return false;
+            }
+
+            continue;
+        } else {
+            // 发生其他错误
+            return false;
+        }
     }
     return true;
 }
