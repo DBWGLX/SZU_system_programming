@@ -23,11 +23,10 @@
 // 线程任务类声明
 class ClientTask : public Task {
 public:
-    ClientTask(int clientFd, int epollFd, LRUTokenManager* LRUm);
+    ClientTask(int clientFd,std::string msg, int epollFd, LRUTokenManager* LRUm);
     void execute(DBOperation& dbop) override;//默认操作；先解析序列化方式
 private:
     void PROTOBUF_handle();//解析报文类型
-    bool recvAll(int sockfd, void* buffer, size_t len);//保证接收完
     ssize_t sendAll(int sockfd, const char* data, size_t len);//发送策略
     ssize_t PROTOBUF_sendAll(int sockfd, std::string serialized_data);
     ssize_t PROTOBUF_sendResult(int sockfd, int type, const char* message);
@@ -40,15 +39,11 @@ private:
     void PROTOBUF_handleType3(const std::string& received_data);//获取在线用户列表
     void PROTOBUF_handleType4(const std::string& received_data);//聊天
     void PROTOBUF_handleType5(const std::string& received_data);//登出
-    // void JSON_handleType1(json_t *root);//注册
-    // void JSON_handleType2(json_t *root);//登录
-    // void JSON_handleType3(json_t *root);//获取在线用户列表
-    // void JSON_handleType4(json_t *root);//聊天
-    // void JSON_handleType5(json_t *root);//登出
     void freeFd();
     int _clientFd;
+    std::string _msg;
     int _epollFd; //断开连接时用
-    DBOperation* _dbopPtr;
     LRUTokenManager* _LRUm;//manager
+    DBOperation* _dbopPtr;
     std::chrono::seconds timeoutSeconds;//recv超时时间
 };

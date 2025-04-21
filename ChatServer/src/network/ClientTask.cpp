@@ -3,94 +3,44 @@
 
 // ClientTask 类定义
 
-ClientTask::ClientTask(int clientFd, int epollFd, LRUTokenManager* LRUm)
-    : _clientFd(clientFd), _epollFd(epollFd), _LRUm(LRUm)
+ClientTask::ClientTask(int clientFd, std::string msg,int epollFd, LRUTokenManager* LRUm)
+    : _clientFd(clientFd), _msg(msg), _epollFd(epollFd), _LRUm(LRUm)
 {   
     timeoutSeconds = std::chrono::seconds(2);
 }
 
-bool ClientTask::recvAll(int sockfd, void* buffer, size_t len){
-    size_t totalReceived = 0;
-    char* buf = (char*)buffer;
-    auto startTime = std::chrono::steady_clock::now();// std::chrono::time_point //1970 年 1 月 1 日 00:00:00 UTC
-
-    while(totalReceived < len){
-        ssize_t received = recv(sockfd, buf + totalReceived, len - totalReceived, 0);
-        if (received > 0) {
-            totalReceived += received;
-        } else if (received == 0) {// 连接关闭
-            return false;
-        } else if (errno == EAGAIN || errno == EWOULDBLOCK) {// 没有数据可读，稍后重试
-            auto currentTime = std::chrono::steady_clock::now();
-            auto elapsedTime = std::chrono::duration_cast<std::chrono::seconds>(currentTime - startTime).count();
-            if (elapsedTime >= timeoutSeconds.count()) {// 超时
-                return false;
-            }
-
-            continue;
-        } else {
-            // 发生其他错误
-            return false;
-        }
-    }
-    return true;
-}
-
+//执行逻辑
 void ClientTask::execute(DBOperation& dbop) {
     _dbopPtr = &dbop;
+
     uint32_t key;
-    if(recvAll(_clientFd, &key, sizeof(key))) {
-        key = ntohl(key); 
-        switch(key){
-            case PROTOBUF_KEY:
-                PROTOBUF_handle();
-                break; 
-            // 拓展其他字节流
-        }
-    }else{// recv == 0， 对端已关闭
-        std::ostringstream oss;
-        oss << "Client processing is terminated, clientfd: " << _clientFd << std::endl;
-        info_str(oss.str());
-
-        if (epoll_ctl(_epollFd, EPOLL_CTL_DEL, _clientFd, nullptr) == -1) {
-            std::cerr << "Failed to remove clientFd from epoll instance: " << strerror(errno) << std::endl;
-        }
-        close(_clientFd);
-        return;//直接退出就行
-    }
-
-    // one shot
-    epoll_event clientEvent{};
-    clientEvent.data.fd = _clientFd;
-    clientEvent.events = EPOLLIN | EPOLLET | EPOLLHUP | EPOLLERR | EPOLLONESHOT;//
-    if (epoll_ctl(_epollFd, EPOLL_CTL_MOD, _clientFd, &clientEvent) == -1) {
-        std::ostringstream oss;
-        oss << "❌ EPOLLONESHOT ERROR,  _clientFd:" << _clientFd;
-        fatal_str(oss.str());
-        close(_clientFd);
+    std::memcpy(&key, &_msg[0], 4);
+    key = ntohl(key); 
+    switch(key){
+        case PROTOBUF_KEY:
+            PROTOBUF_handle();
+            break; 
+        // 拓展其他字节流
     }
 }
-
 
 void ClientTask::PROTOBUF_handle(){
     uint32_t length;
-    if (!recvAll(_clientFd, &length, sizeof(length))) return;
-
+    std::memcpy(&length, &_msg[4], 4);
     length = ntohl(length);
+
+
     debug_str("收到报文长度" + std::to_string(length));
 
-    //读取
-    std::string received_data(length, '\0');
-    if (!recvAll(_clientFd, &received_data[0], length)) return;
-    debug_str("protobuf: " + received_data.substr(0,50)); // 防止日志过载
+    debug_str("protobuf: " + _msg.substr(0,50)); // 防止日志过载
 
     chat::ChatMessage msg; // 只用一下type字段
-    if (!msg.ParseFromString(received_data)) {
+    if (!msg.ParseFromString(_msg.substr(8))) {
         fatal_str("Failed to parse protobuf message!");
         return;
     }
 
-    PROTOBUF_handleMessageType(msg.type(),received_data); 
+    PROTOBUF_handleMessageType(msg.type(),_msg.substr(8)); 
 }
 
 
@@ -326,345 +276,6 @@ void ClientTask::PROTOBUF_handleType5(const std::string& received_data){
     PROTOBUF_sendResult(_clientFd, 5001, "success");
     freeFd();
 }
-
-
-
-// JSON
-// ssize_t ClientTask::JSON_sendResult(int sockfd, int type, const char* message) {
-//     // 使用 jansson 创建 JSON 对象
-//     json_t *response = json_object();  // jansson 的创建对象函数
-
-//     // 设置 type 字段
-//     json_object_set_new(response, "type", json_integer(type));  // jansson 的函数
-
-//     // 设置 message 字段
-//     json_object_set_new(response, "message", json_string(message));
-
-//     // 获取序列化后的 JSON 字符串
-//     char* responseStr = json_dumps(response, JSON_COMPACT);
-
-//     size_t dataLen = strlen(responseStr);  // 数据总长度
-//     size_t totalSent = 0;  // 已发送字节数
-
-//     while (totalSent < dataLen) {
-//         ssize_t sent = send(sockfd, responseStr + totalSent, dataLen - totalSent, 0);
-
-//         if (sent == -1) {
-//             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-//                 // 如果发生缓冲区满的情况，稍等后重试
-//                 usleep(1000);  // 延迟 1 毫秒再尝试发送
-//                 continue;  // 继续发送剩余的数据
-//             } else {
-//                 perror("send failed");
-//                 free(responseStr);
-//                 json_decref(response);  // 释放 JSON 对象
-//                 return -1;  // 发送失败，返回 -1
-//             }
-//         } else if (sent == 0) {
-//             fprintf(stderr, "Connection closed by peer\n");
-//             free(responseStr);
-//             json_decref(response);  // 释放 JSON 对象
-//             return -1;  // 连接关闭，返回 -1
-//         }
-
-//         totalSent += sent;  // 累加已发送的字节数
-//     }
-//     free(responseStr);
-//     json_decref(response);  // 释放 JSON 对象
-//     return totalSent;  // 返回已发送的字节数
-// }
-// int ClientTask::JSON_sendUsersInfo(int clientFd, const std::vector<std::pair<std::string, std::string>>& users) {
-//     // 创建一个 JSON 对象，包含 "type" 和 "users" 字段
-//     json_t *response = json_object();
-    
-//     // 设置 type 字段为 3001
-//     json_object_set_new(response, "type", json_integer(3001));
-
-//     // 创建一个 JSON 数组用于存储用户信息
-//     json_t *userArray = json_array();
-
-//     // 遍历用户信息（name, account）并构建对应的 JSON 对象
-//     for (const auto& user : users) {
-//         // 为每个用户创建一个 JSON 对象
-//         json_t *userObj = json_object();
-//         json_object_set_new(userObj, "name", json_string(user.first.c_str()));
-//         json_object_set_new(userObj, "account", json_string(user.second.c_str()));
-
-//         // 将该用户的 JSON 对象添加到数组中
-//         json_array_append_new(userArray, userObj);
-//     }
-
-//     // 将用户数组添加到 response 对象中的 "users" 字段
-//     json_object_set_new(response, "users", userArray);
-
-//     // 将 JSON 对象序列化为字符串
-//     char *responseStr = json_dumps(response, 0);
-
-//     if (responseStr) {
-//         // 使用 sendAll 发送 JSON 数据
-//         ssize_t sentBytes = sendAll(clientFd, responseStr);
-//         free(responseStr);  // 释放序列化后的 JSON 字符串
-//         json_decref(response);  // 释放 JSON 对象的内存
-
-//         // 判断发送字节数是否大于 0，返回成功或失败
-//         return (sentBytes > 0) ? 0 : -1;
-//     }
-
-//     json_decref(response);  // 释放 JSON 对象的内存
-//     return -1;  // 序列化失败，返回失败
-// }
-// void ClientTask::JSON_handleMessageType(int type, json_t *root) {
-//     switch (type) {
-//         case 1000:
-//             JSON_handleType1(root);
-//             break;
-//         case 2000:
-//             JSON_handleType2(root);
-//             break;
-//         case 3000:
-//             JSON_handleType3(root);
-//             break;
-//         case 4000:
-//             JSON_handleType4(root);
-//             break;
-//         case 5000:
-//             JSON_handleType5(root);
-//             break;
-//         default:
-//             std::cerr << "Unknown message type: " << type << std::endl;
-//             break;
-//     }
-// }
-// void ClientTask::JSON_handleType1(json_t *root) {
-//     // 解析 account 字段
-//     json_t *account_json = json_object_get(root, "account");
-//     if (!json_is_string(account_json)) {
-//         std::cerr << "Invalid 'account' field in JSON" << std::endl;
-//         sendResult(_clientFd, 1002, "Invalid 'account'");
-//         return;
-//     }
-//     const char *account = json_string_value(account_json);
-//     // 解析 password 字段
-//     json_t *password_json = json_object_get(root, "password");
-//     if (!json_is_string(password_json)) {
-//         std::cerr << "Invalid 'password' field in JSON" << std::endl;
-//         sendResult(_clientFd, 1002, "Invalid 'password'");
-//         return;
-//     }
-//     const char *password = json_string_value(password_json);
-//     // 解析 username 字段
-//     json_t *username_json = json_object_get(root, "username");
-//     if (!json_is_string(username_json)) {
-//         std::cerr << "Invalid 'username' field in JSON" << std::endl;
-//         sendResult(_clientFd, 1002, "Invalid 'username'");
-//         return;
-//     }
-//     const char *username = json_string_value(username_json);
-//     // 解析 phone_number 字段
-//     json_t *phone_number_json = json_object_get(root, "phone_number");
-//     if (!json_is_string(phone_number_json)) {
-//         std::cerr << "Invalid 'phone_number' field in JSON" << std::endl;
-//         sendResult(_clientFd, 1002, "Invalid 'phone_number'");
-//         return;
-//     }
-//     const char *phone_number = json_string_value(phone_number_json);
-//     // 解析 email 字段
-//     json_t *email_json = json_object_get(root, "email");
-//     if (!json_is_string(email_json)) {
-//         std::cerr << "Invalid 'email' field in JSON" << std::endl;
-//         sendResult(_clientFd, 1002, "Invalid 'email'");
-//         return;
-//     }
-//     const char *email = json_string_value(email_json);
-
-//     User user(account, password, username, phone_number, email);
-//     int res = _dbopPtr->addUser(user);
-//     if(res == 0)
-//         sendResult(_clientFd, 1001, "success");
-//     else 
-//         sendResult(_clientFd, 1002, "fail");
-// }
-// void ClientTask::JSON_handleType2(json_t *root) {
-//     // 解析 account 字段
-//     json_t *account_json = json_object_get(root, "account");
-//     if (!json_is_string(account_json)) {
-//         std::cerr << "Invalid 'account' field in JSON" << std::endl;
-//         sendResult(_clientFd, 2002, "Invalid 'account'");
-//         return;
-//     }
-//     const char *account = json_string_value(account_json);
-//     // 解析 password 字段
-//     json_t *password_json = json_object_get(root, "password");
-//     if (!json_is_string(password_json)) {
-//         std::cerr << "Invalid 'password' field in JSON" << std::endl;
-//         sendResult(_clientFd, 2002, "Invalid 'password'");
-//         return;
-//     }
-//     const char *password = json_string_value(password_json);
-
-//     bool res = _dbopPtr->verifyUser(account, password);
-
-//     if(res){
-//         std::string token = _LRUm->generate_token();
-//         sendResult(_clientFd, 2001, token.c_str());
-//         std::string username = _dbopPtr->getUsername(account); 
-//         _LRUm->saveToken(account, token, username, _clientFd);
-//         sendResult(_clientFd, 2011, username.c_str());
-
-//         //发送离线时接收的消息
-//         bool flag = true;
-//         std::vector<std::string> strs = _dbopPtr->getMessage(account);
-//         for(auto& str: strs){
-//             json_t *json_obj = json_object();
-//             json_object_set_new(json_obj, "type", json_integer(4010));
-//             json_object_set_new(json_obj, "account", json_string(account));
-//             json_object_set_new(json_obj, "message", json_string(str.c_str()));
-//             // 转换为字符串
-//             char *msg = json_dumps(json_obj, JSON_COMPACT);
-//             json_decref(json_obj); // 释放 JSON 对象
-//             if (!msg) {
-//                 std::cerr << "Failed to create JSON string" << std::endl;
-//                 flag = false;
-//                 return;
-//             }
-//             // 发送消息
-//             if (sendAll(_clientFd, msg) == -1) {
-//                 perror("T2 Failed to send result\n");
-//                 flag = false;
-//             }
-//             free(msg); // 释放 JSON 字符串
-//         }
-//         if(flag){
-//             _dbopPtr->deleteMessage(account);
-//         }
-//     }
-//     else
-//         sendResult(_clientFd, 2002, "fail");
-// }
-// void ClientTask::JSON_handleType3(json_t *root){
-//     json_t *account_json = json_object_get(root, "account");
-//     if (!json_is_string(account_json)) {
-//         std::cerr << "Invalid 'account' field in JSON" << std::endl;
-//         sendResult(_clientFd, 3002, "Invalid 'account'");
-//         return;
-//     }
-//     const char *account = json_string_value(account_json);
-//     // 解析 token 字段
-//     json_t *token_json = json_object_get(root, "token");
-//     if (!json_is_string(token_json)) {
-//         std::cerr << "Invalid 'token' field in JSON" << std::endl;
-//         sendResult(_clientFd, 3002, "Invalid 'token'");
-//         return;
-//     }
-//     const char *token = json_string_value(token_json);
-//     // 验证 token
-//     if (!_LRUm->verifyToken(account, token)) {
-//         std::cerr << "Invalid or expired token" << std::endl;
-//         sendResult(_clientFd, 3002, "Invalid or expired token, try relog please.");
-//         return;
-//     }
-//     // 获取在线用户列表
-//     std::vector<std::pair<std::string, std::string>> userPairs = _LRUm->getAllUsers();
-//     sendUsersInfo(_clientFd, userPairs);
-// }
-// void ClientTask::JSON_handleType4(json_t *root){
-//     json_t *account_json = json_object_get(root, "account");
-//     if (!json_is_string(account_json)) {
-//         std::cerr << "Invalid 'account' field in JSON" << std::endl;
-//         sendResult(_clientFd, 4002, "Invalid 'account'");
-//         return;
-//     }
-//     const char *account = json_string_value(account_json);
-//     // 解析 token 字段
-//     json_t *token_json = json_object_get(root, "token");
-//     if (!json_is_string(token_json)) {
-//         std::cerr << "Invalid 'token' field in JSON" << std::endl;
-//         sendResult(_clientFd, 4002, "Invalid 'token'");
-//         return;
-//     }
-//     const char *token = json_string_value(token_json);
-//     // 验证 token
-//     if (!_LRUm->verifyToken(account, token)) {
-//         std::cerr << "Invalid or expired token" << std::endl;
-//         sendResult(_clientFd, 4002, "Invalid or expired token");
-//         return;
-//     }
-//     // 解析 receiver_useraccount 字段
-//     json_t *receiver_json = json_object_get(root, "receiver_useraccount");
-//     if (!json_is_string(receiver_json)) {
-//         std::cerr << "Invalid 'receiver_useraccount' field in JSON" << std::endl;
-//         sendResult(_clientFd, 4002, "Invalid 'receiver_useraccount'");
-//         return;
-//     }
-//     const char *receiver = json_string_value(receiver_json);
-//     // 解析 message 字段
-//     json_t *message_json = json_object_get(root, "message");
-//     if (!json_is_string(message_json)) {
-//         std::cerr << "Invalid 'message' field in JSON" << std::endl;
-//         sendResult(_clientFd, 4002, "Invalid 'message'");
-//         return;
-//     }
-//     const char *message = json_string_value(message_json);
-
-//     // 获取接收者的文件描述符
-//     int receiver_fd = _LRUm->getUserFd(receiver);
-//     if (receiver_fd == -1) {
-//         _dbopPtr->addMessage(account , receiver, message);
-//         return;
-//     }
-
-//     // 构造消息并发送
-//     // 创建 JSON 对象
-//     json_t *json_obj = json_object();
-//     json_object_set_new(json_obj, "type", json_integer(4010));
-//     json_object_set_new(json_obj, "account", json_string(account));
-//     json_object_set_new(json_obj, "message", json_string(message));
-//     // 转换为字符串
-//     char *msg = json_dumps(json_obj, JSON_COMPACT);
-//     json_decref(json_obj); // 释放 JSON 对象
-//     if (!msg) {
-//         std::cerr << "Failed to create JSON string" << std::endl;
-//         return;
-//     }
-//     // 发送消息
-//     if (sendAll(receiver_fd, msg) == -1) {
-//         _dbopPtr->addMessage(account, receiver, msg);
-//         perror("Failed to send result\n");
-//     }
-//     free(msg); // 释放 JSON 字符串
-// }
-// void ClientTask::JSON_handleType5(json_t *root){
-//     json_t *account_json = json_object_get(root, "account");
-//     if (!json_is_string(account_json)) {
-//         std::cerr << "Invalid 'account' field in JSON" << std::endl;
-//         sendResult(_clientFd, 5002, "Fail");
-//         return;
-//     }
-//     const char *account = json_string_value(account_json);
-//     json_t *token_json = json_object_get(root, "token");
-//     if (!json_is_string(token_json)) {
-//         std::cerr << "Invalid 'token' field in JSON" << std::endl;
-//         sendResult(_clientFd, 5002, "Fail");
-//         return;
-//     }
-//     const char *token = json_string_value(token_json);
-//     if (!_LRUm->verifyToken(account, token)) {
-//         std::cerr << "Invalid or expired token" << std::endl;
-//         sendResult(_clientFd, 5002, "Fail");
-//         return;
-//     }
-//     if (!_LRUm->logout(account)) {
-//         std::cerr << "Failed to log out user" << std::endl;
-//         sendResult(_clientFd, 5002, "Fail");
-//         return;
-//     }
-//     std::ostringstream oss;
-//     oss << "User " << account << " logged out successfully" << std::endl;
-//     info_str(oss.str());
-
-//     sendResult(_clientFd, 5001, "success");
-//     freeFd();
-// }
 
 //
 void ClientTask::freeFd(){

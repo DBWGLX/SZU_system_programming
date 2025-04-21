@@ -1,6 +1,6 @@
 # 编译器
 CXX = g++
-CXXFLAGS = -std=c++17 -pthread -Wall
+CXXFLAGS = -std=c++17 -pthread -Wall -g
 
 # 目录
 SRC_DIR = src
@@ -16,7 +16,7 @@ CXXFLAGS += $(addprefix -I,$(INC_DIRS))
 INCLUDES = -I/usr/include/mysql-cppconn-8/jdbc
 
 # 库
-LIBS = -lmysqlcppconn -L /home/wyx/work/Cpp-Logging-Component-on-Independent-Threads/cmake_out/lib -lasync_logger -lcrypto -lprotobuf
+LIBS = -lmysqlcppconn -L /home/wyx/work/Cpp-Logging-Component-on-Independent-Threads/cmake_out/lib -lasync_logger -lcrypto -lprotobuf -luring
 
 # 递归查找 src 目录下的所有 .cpp 文件
 SRCS := $(shell find $(SRC_DIR) -type f \( -name "*.cpp" -o -name "*.cc" \))

@@ -47,6 +47,7 @@ int main(){
     }
     fatal_str("🛑 Service terminated.");
     LOG("🛑 Service terminated.");
+    sleep(1);
     return 0;
 }
 

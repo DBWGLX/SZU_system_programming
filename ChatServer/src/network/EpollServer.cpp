@@ -3,7 +3,13 @@
 // EpollServer 类定义
 
 EpollServer::EpollServer(std::atomic<bool>& interrupted)
-    : threadPool(std::make_unique<ThreadPool>(interrupted, 4)), _interrupted(interrupted){
+    : threadPool(std::make_unique<ThreadPool>(interrupted, 4)), _interrupted(interrupted)
+{
+    int ret = io_uring_queue_init(256, &ring, 0); // 初始化 io_uring，队列深度为 256
+    if (ret < 0) {
+        fatal_str("io_uring 初始化失败: " + std::string(strerror(-ret)));
+    }
+
     initSocket();
 }
 
@@ -13,99 +19,122 @@ EpollServer::~EpollServer() {
 }
 
 void EpollServer::work() {
+    auto* read_ctx = new AcceptContext(serverFd);
+    // io_uring 监听
+    submitAccept(read_ctx);
+
     while (!_interrupted) {
+        debug("#### 开始一次监听");
         logger_flush();
 
-        struct epoll_event events[10];
-        int readyFdCount = epoll_wait(epollFd, events, 10, -1);
-        if (readyFdCount == -1) {
-            if (errno == EINTR) {
-                continue; // 被信号中断，直接继续循环检查 interrupted
+        int ret = io_uring_submit_and_wait(&ring, 1);
+        //debug_str("io_uring_submit_and_wait 返回");logger_flush();
+        if (ret < 0) {
+            if (ret == -EINTR) {
+                warn_str("io_uring 发生信号中断");
+                continue;
             }
-            throw std::runtime_error("epoll_wait error");
+            error_str("❌ io_uring_submit_and_wait 失败" + std::string(strerror(-ret)));
             break;
         }
 
-        //info_str("📨 服务器收到请求");
-        
-        //处理IO时间
-        handleEpollEvents(events, readyFdCount);
-    }
-    
-    if (errno == EINTR) {
-        std::cerr << "epoll_wait interrupted by signal SIGINT." << std::endl;
-    }
-}
+        unsigned head;
+        io_uring_cqe* cqe;
+        int handled = 0;
 
+        io_uring_for_each_cqe(&ring, head, cqe) { // entry
 
-//处理IO
-void EpollServer::handleEpollEvents(struct epoll_event* events, int readyFdCount){
-    for (int i = 0; i < readyFdCount; i++) {
-        if(events[i].events & (EPOLLERR | EPOLLHUP)){ // 连接半关闭状态；对方已关闭
-            std::ostringstream oss;
-            oss << "Client connection closed or error occurred" << std::endl;
-            fatal_str(oss.str());
-            int clientFd = events[i].data.fd;
-            if (epoll_ctl(epollFd, EPOLL_CTL_DEL, clientFd, nullptr) == -1) {
-                std::cerr << "Failed to remove clientFd from epoll instance: " << strerror(errno) << std::endl;
-            }
-            close(clientFd);
-        }//EPOLLHUP
-        else if (events[i].data.fd == serverFd) { //服务器接收到连接请求
-            sockaddr_in clientAddr{};
-            socklen_t clientAddrLen = sizeof(clientAddr);
-            int clientFd = accept(serverFd, reinterpret_cast<sockaddr*>(&clientAddr), reinterpret_cast<socklen_t*>(&clientAddrLen));
-            if (clientFd == -1) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {// 没有更多连接了
-                    continue;
-                } else {
-                    perror("accept");
-                    continue;
-                }
-            }
-
-            // 打印客户端的 IP 地址和端口信息
-            char clientIp[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &(clientAddr.sin_addr), clientIp, INET_ADDRSTRLEN);
-            int clientPort = ntohs(clientAddr.sin_port);
-            std::ostringstream oss;
-            oss << "🕊️ 收到客户端连接请求: IP: " << clientIp << ", 端口: " << clientPort << ", clientFd:" << clientFd;
-            info_str(oss.str());
-            
-            
-            int flags = fcntl(clientFd, F_GETFL, 0);//获取当前标志
-            if(fcntl(clientFd, F_SETFL, flags | O_NONBLOCK)==-1){
-                oss = std::ostringstream();
-                oss << "❌ 设置非阻塞失败 clientFd:" << clientIp << ", 端口 = " << clientPort;
-                fatal_str(oss.str());
-            }
-            epoll_event clientEvent{};
-            clientEvent.data.fd = clientFd;
-            clientEvent.events = EPOLLIN | EPOLLET | EPOLLHUP | EPOLLERR | EPOLLONESHOT;//
-            if (epoll_ctl(epollFd, EPOLL_CTL_ADD, clientFd, &clientEvent) == -1) {
-                oss = std::ostringstream();
-                oss << "❌ 连接失败：" << clientIp << ", 端口 = " << clientPort;
-                fatal_str(oss.str());
-                close(clientFd);
-            }
-        } 
-        else { //客户端IO
-            sockaddr_in clientAddr{};
-            socklen_t clientAddrLen = sizeof(clientAddr);
-            // 使用 getpeername 获取客户端地址信息
-            if (getpeername(events[i].data.fd, reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen) == -1) {
-                fatal_str("getpeername error");
+            //获取 data
+            void* user_data = io_uring_cqe_get_data(cqe);
+            if (!user_data) {
+                error_str("⚠️ cqe 的 user_data 是空的！");
+                handled++;
                 continue;
             }
-            char clientIp[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &(clientAddr.sin_addr), clientIp, INET_ADDRSTRLEN);
-            int clientPort = ntohs(clientAddr.sin_port);
-            std::ostringstream oss;
-            oss << "📨 收到客户端消息: IP: " << clientIp << ", 端口: " << clientPort << ", clientFd: " << events[i].data.fd;
-            info_str(oss.str());
 
-            threadPool->enqueue(new ClientTask(events[i].data.fd, epollFd, &LRUm));
+            // ===== 接收连接请求 =====
+            if (isAccept(user_data)) {
+
+                auto* ctx = static_cast<AcceptContext*>(user_data);
+                int clientFd = cqe->res;
+
+                if (clientFd <= 0) {
+                    error_str("❌ accept 失败: " + std::to_string(clientFd) + " " + std::string(strerror(errno)));
+                    logger_flush();
+                    handled++;
+                    continue;
+                }
+
+                // 设置非阻塞
+                int flags = fcntl(clientFd, F_GETFL, 0);
+                if (fcntl(clientFd, F_SETFL, flags | O_NONBLOCK) == -1) {
+                    fatal_str("❌ 设置非阻塞失败");
+                    close(clientFd);
+                    delete ctx;
+                    handled++;
+                    continue;
+                }
+
+
+                // 打印连接信息
+                {
+                    char clientIp[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &(ctx->getClientAddr().sin_addr), clientIp, INET_ADDRSTRLEN);
+                    int clientPort = ntohs(ctx->getClientAddr().sin_port);
+                    std::ostringstream oss;
+                    oss << "🕊️ 收到客户端连接请求: IP: " << clientIp
+                        << ", 端口: " << clientPort
+                        << ", clientFd: " << clientFd;
+                    info_str(oss.str());
+                }
+
+
+                auto* read_ctx = new ReadContext(clientFd);
+                submitRead(clientFd, read_ctx);     // 启动该客户端的读取
+
+                submitAccept(ctx); // 继续监听下一个连接
+            } 
+            // ===== 客户端发送数据 =====
+            else if (isRead(user_data)) {
+                debug("正在处理接收到的数据");
+
+                auto* ctx = static_cast<ReadContext*>(user_data);
+
+                if (cqe->res <= 0) {
+                    if (cqe->res == 0) {
+                        info_str("🔌 客户端主动关闭连接 " + std::string(strerror(-cqe->res)));
+                    } else {
+                        error_str("❌ 读取失败: " + std::string(strerror(-cqe->res)));
+                    }
+                    close(ctx->getClientFd());
+                    delete ctx;// 删除读缓冲区
+                    handled++;
+                    continue;
+                }
+
+                // 数据先迁移到 解析缓冲区
+                ctx->appendData(ctx->buffer, cqe->res);
+
+                // 解析
+                while (ctx->hasCompleteKLV()) {
+                    auto msg = ctx->extractOneKLV();
+                    threadPool->enqueue(new ClientTask(ctx->getClientFd(), msg, serverFd, &_LRUm));
+                }
+
+                // 继续提交下一次 read
+                submitRead(ctx->getClientFd(), ctx);
+            }
+
+
+            handled++;
         }
+        // 批量标记所有处理完的 cqe
+        io_uring_cq_advance(&ring, handled);
+    }
+    
+    delete read_ctx;
+    if (errno == EINTR) {
+        std::cerr << "epoll_wait interrupted by signal SIGINT." << std::endl;
     }
 }
 
@@ -139,28 +168,52 @@ void EpollServer::initSocket() {
         close(serverFd);
         throw std::runtime_error("Failed to bind socket");
     }
-    if (listen(serverFd, SOMAXCONN) == -1) {
+    if (listen(serverFd, SOMAXCONN) == -1) { // 设置为监听状态
         close(serverFd);
         throw std::runtime_error("Failed to listen on socket");
     }
 
+    debug("服务器套接字开始监听，serverFd: " + std::to_string(serverFd));
+}
 
-    ///初始化epoll #################################################################################
-    epollFd = epoll_create1(0);
-    if (epollFd == -1) {
-        perror("epoll_create1");
-        close(serverFd);
-        throw std::runtime_error("Failed to create epoll instance");
+// Submission Queue
+void EpollServer::submitAccept(AcceptContext* ctx) {
+
+    io_uring_sqe* sqe = io_uring_get_sqe(&ring);
+    if (!sqe) {
+        fatal_str("❌ 获取 SQE 失败，可能 ring 满了");
+        return;
     }
 
-    //epoll监听服务器
-    struct epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd = serverFd;
-    if (epoll_ctl(epollFd, EPOLL_CTL_ADD, serverFd , &ev) == -1) {
-        perror("epoll_ctl");
-        close(serverFd);
-        close(epollFd);
-        throw std::runtime_error("Failed to epoll_add serverFd");
+    io_uring_prep_accept(sqe,serverFd,
+        reinterpret_cast<sockaddr*>(&ctx->getClientAddr()),&ctx->getClientAddrLen(),0);
+
+    io_uring_sqe_set_data(sqe, ctx); // 设置上下文
+    if (io_uring_submit(&ring) < 0) {
+        fatal_str("❌ io_uring_submit 提交失败");
+        //delete ctx;
+        return;
     }
 }
+
+
+// 提交读写请求
+void EpollServer::submitRead(int clientFd, ReadContext* ctx) {
+    io_uring_sqe* sqe = io_uring_get_sqe(&ring);
+    if (!sqe) {
+        fatal_str("❌ 获取 read SQE 失败");
+        //delete ctx;
+        return;
+    }
+
+    io_uring_prep_read(sqe, clientFd, ctx->buffer, ctx->bufferLen, 0);
+    io_uring_sqe_set_data(sqe, ctx);
+    
+    if (io_uring_submit(&ring) < 0) {
+        fatal_str("❌ io_uring_submit 提交失败");
+        //delete ctx;
+        return;
+    }
+}
+
+

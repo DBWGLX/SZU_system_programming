@@ -13,18 +13,15 @@ scl enable devtoolset-8 bash
 
 # json jansson库
 -ljansson
-
-# openSSH
+# openSSH 
 -lcrypto
-
-# io_uring
+# io_uring 
 -luring
-
 # protoc
 protoc --cpp_out=. chat.proto
 
 
-## 运行问题
+### 运行问题
 
 # ※ (链接我的日志器) 临时设置终端环境变量 为动态库位置（非默认目录时）
 export LD_LIBRARY_PATH=/home/wyx/work/Cpp-Logging-Component-on-Independent-Threads/cmake_out/lib:$LD_LIBRARY_PATH

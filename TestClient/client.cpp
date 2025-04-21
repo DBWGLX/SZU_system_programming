@@ -295,6 +295,7 @@ void thread_sender(int sockfd, int startn){
     }
 }
 
+//只发一次
 void thread_sender1(int sockfd, int startn){
     int i = startn;
     std::string account = std::to_string(i);
@@ -322,6 +323,8 @@ void thread_sender1(int sockfd, int startn){
     }
 }
 
+#define FDNUMS 4
+
 int main() {
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
@@ -331,7 +334,7 @@ int main() {
     std::string time_init = now();
 
     std::vector<int> sockfds;
-    for(int i=0;i<10000;i++){
+    for(int i=0;i<FDNUMS;i++){
         sockfds.push_back(socket(AF_INET, SOCK_STREAM, 0));
         if(sockfds[i] == -1){
             std::cout << "num:" << i << " ";
@@ -352,12 +355,13 @@ int main() {
     std::thread receiver(receiveMessage, std::ref(sockfds), &user_info);
 
     std::vector<std::thread> threads;
-    for(int i=0;i<10000;i++){
-        thread_sender1(sockfds[i],i);
-        //std::thread(thread_sender1, sockfds[i], i).detach();
-    }
-    // for(int i=0;i<4;i++)
-    //     threads.emplace_back(thread_sender, sockfds[i], i*2500);
+    // for(int i=0;i<sockfds.size();i++){
+    //     thread_sender1(sockfds[i],i);
+    // }
+
+    // 多点
+    for(int i=0;i<4;i++)
+        threads.emplace_back(thread_sender, sockfds[i], i*2500);
 
 
     //sender.join();
