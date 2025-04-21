@@ -39,4 +39,5 @@ private:
     io_uring ring;
     void submitAccept(AcceptContext* ctx);
     void submitRead(int clientFd, ReadContext* ctx);
+    void submitSend(SendContext* ctx);
 };

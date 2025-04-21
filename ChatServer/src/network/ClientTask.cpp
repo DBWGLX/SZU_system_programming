@@ -3,8 +3,8 @@
 
 // ClientTask 类定义
 
-ClientTask::ClientTask(int clientFd, std::string msg,int epollFd, LRUTokenManager* LRUm)
-    : _clientFd(clientFd), _msg(msg), _epollFd(epollFd), _LRUm(LRUm)
+ClientTask::ClientTask(int clientFd, std::string msg,int epollFd, LRUTokenManager* LRUm, io_uring* ring)
+    : _clientFd(clientFd), _msg(msg), _epollFd(epollFd), _LRUm(LRUm), _ring(ring)
 {   
     timeoutSeconds = std::chrono::seconds(2);
 }
@@ -43,39 +43,49 @@ void ClientTask::PROTOBUF_handle(){
     PROTOBUF_handleMessageType(msg.type(),_msg.substr(8)); 
 }
 
-
-ssize_t ClientTask::sendAll(int sockfd, const char* data, size_t len) {
-    size_t totalSent = 0;
-    while (totalSent < len) {
-        ssize_t sent = send(sockfd, data + totalSent, len - totalSent, 0);
-        
-        if (sent == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                usleep(1000);  // 发送缓冲区满时，等待 1ms 再尝试
-                continue;
-            } else {
-                perror("send failed");
-                return -1;  // 发送失败
-            }
-        } else if (sent == 0) {
-            std::cerr << "连接关闭！" << std::endl;
-            return -1;
-        }
-
-        totalSent += sent;
+size_t ClientTask::submitSend(SendContext* ctx) {
+    size_t remaining = ctx->data.size() - ctx->offset;
+    if (remaining == 0) {
+        delete ctx; // 发送完毕，释放资源
+        return 0;
     }
-    return totalSent;
+
+    io_uring_sqe* sqe = io_uring_get_sqe(_ring);
+    if (!sqe) {
+        fatal_str("❌ 获取SQE失败！");
+        return -1;
+    }
+
+    // 发送时的指针
+    void* ptr = (void*)(ctx->data.data() + ctx->offset);
+    size_t len = remaining;
+
+    io_uring_prep_send(sqe, ctx->sockfd, ptr, len, 0);
+    io_uring_sqe_set_data(sqe, ctx); // 传回这个 ctx
+
+    if (io_uring_submit(_ring) < 0) {
+        fatal_str("❌ io_uring_submit 提交失败");
+        delete ctx;
+        return -1;
+    }
+    return 0;
 }
 
-ssize_t ClientTask::PROTOBUF_sendAll(int sockfd, std::string serialized_data){// KLV打包
+size_t ClientTask::PROTOBUF_sendAll(int sockfd, const std::string& serialized_data) {
+    std::string msg;
+
+    // 打包成 KLV 格式
     uint32_t key = htonl(PROTOBUF_KEY);
-    uint32_t length = htonl(serialized_data.size());
-    std::string packet;
-    packet.append(reinterpret_cast<const char*>(&key), sizeof(key));  // K
-    packet.append(reinterpret_cast<const char*>(&length), sizeof(length));  // L
-    packet.append(serialized_data);  // V（Protobuf 数据）
-    return sendAll(sockfd, packet.data(), packet.size());
+    uint32_t len = htonl(serialized_data.size());
+
+    msg.append(reinterpret_cast<char*>(&key), sizeof(key));
+    msg.append(reinterpret_cast<char*>(&len), sizeof(len));
+    msg.append(serialized_data);
+
+    SendContext* ctx = new SendContext(sockfd, msg);
+    return submitSend(ctx);  // 发起第一次发送
 }
+
 
 ssize_t ClientTask::PROTOBUF_sendResult(int sockfd, int type, const char* message){
     chat::Response msg;

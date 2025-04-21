@@ -63,8 +63,18 @@ namespace dbwg{
         size_t parsedPos = 0;
     };
 
+    class SendContext : public BaseContext{
+    public:
+        SendContext(int clientFd, std::string msg);
+        int sockfd;
+        std::string data;  // 整个KLV数据
+        size_t offset = 0; // 已发送位置
+    private:
+    };
+
     bool isAccept(void* user_data);
     bool isRead(void* user_data);
+    bool isWrite(void* user_data);
 }
 
 #endif

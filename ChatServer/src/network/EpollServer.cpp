@@ -55,7 +55,7 @@ void EpollServer::work() {
             // ===== 接收连接请求 =====
             if (isAccept(user_data)) {
 
-                auto* ctx = static_cast<AcceptContext*>(user_data);
+                AcceptContext* ctx = static_cast<AcceptContext*>(user_data);
                 int clientFd = cqe->res;
 
                 if (clientFd <= 0) {
@@ -98,7 +98,7 @@ void EpollServer::work() {
             else if (isRead(user_data)) {
                 debug("正在处理接收到的数据");
 
-                auto* ctx = static_cast<ReadContext*>(user_data);
+                ReadContext* ctx = static_cast<ReadContext*>(user_data);
 
                 if (cqe->res <= 0) {
                     if (cqe->res == 0) {
@@ -118,13 +118,25 @@ void EpollServer::work() {
                 // 解析
                 while (ctx->hasCompleteKLV()) {
                     auto msg = ctx->extractOneKLV();
-                    threadPool->enqueue(new ClientTask(ctx->getClientFd(), msg, serverFd, &_LRUm));
+                    threadPool->enqueue(new ClientTask(ctx->getClientFd(), msg, serverFd, &_LRUm, &ring));
                 }
 
                 // 继续提交下一次 read
                 submitRead(ctx->getClientFd(), ctx);
             }
+            else if (isWrite(user_data)){
+                SendContext* ctx = static_cast<SendContext*>(io_uring_cqe_get_data(cqe));
+                ssize_t sent = cqe->res;
 
+                if (sent < 0) {
+                    std::cerr << "发送失败，错误码: " << -sent << std::endl;
+                    delete ctx;
+                    return;
+                }
+
+                ctx->offset += sent;
+                submitSend(ctx);  // 继续发送剩余数据 or 结束释放
+            }
 
             handled++;
         }
@@ -217,3 +229,29 @@ void EpollServer::submitRead(int clientFd, ReadContext* ctx) {
 }
 
 
+void EpollServer::submitSend(SendContext* ctx) {
+    size_t remaining = ctx->data.size() - ctx->offset;
+    if (remaining == 0) {
+        delete ctx; // 发送完毕，释放资源
+        return;
+    }
+
+    io_uring_sqe* sqe = io_uring_get_sqe(&ring);
+    if (!sqe) {
+        fatal_str("❌ 获取 send SQE 失败");
+        return;
+    }
+
+    // 发送时的指针
+    void* ptr = (void*)(ctx->data.data() + ctx->offset);
+    size_t len = remaining;
+
+    io_uring_prep_send(sqe, ctx->sockfd, ptr, len, 0);
+    io_uring_sqe_set_data(sqe, ctx); // 传回这个 ctx
+
+    if (io_uring_submit(&ring) < 0) {
+        fatal_str("❌ io_uring_submit 提交失败");
+        //delete ctx;
+        return;
+    }
+}

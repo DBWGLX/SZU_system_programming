@@ -79,6 +79,10 @@ namespace dbwg{
         return clientFd;
     }
 
+    SendContext::SendContext(int clientFd, std::string msg)
+        : BaseContext(ContextType::WRITE), sockfd(clientFd), data(msg){
+    }
+
     bool isAccept(void* user_data) {
         auto* base = static_cast<BaseContext*>(user_data);
         return base->getType() == ContextType::ACCEPT;
@@ -87,5 +91,10 @@ namespace dbwg{
     bool isRead(void* user_data) {
         auto* base = static_cast<BaseContext*>(user_data);
         return base->getType() == ContextType::READ;
+    }
+
+    bool isWrite(void* user_data) {
+        auto* base = static_cast<BaseContext*>(user_data);
+        return base->getType() == ContextType::WRITE;
     }
 }
