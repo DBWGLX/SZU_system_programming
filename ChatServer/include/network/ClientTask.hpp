@@ -31,7 +31,8 @@ public:
     void execute(DBOperation& dbop) override;//默认操作；先解析序列化方式
 private:
     void PROTOBUF_handle();//解析报文类型
-    size_t submitSend(SendContext* ctx) ;//发送策略
+    size_t submitSend(SendContext* ctx) ;//io_uring 发送策略
+    ssize_t sendAll(int sockfd, const char* data, size_t len);
     size_t PROTOBUF_sendAll(int sockfd, const std::string& serialized_data);
     ssize_t PROTOBUF_sendResult(int sockfd, int type, const char* message);
     ssize_t PROTOBUF_sendLoginResult(int sockfd, std::string& username, std::string& token);

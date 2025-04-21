@@ -323,7 +323,7 @@ void thread_sender1(int sockfd, int startn){
     }
 }
 
-#define FDNUMS 4
+#define FDNUMS 10000
 
 int main() {
     sockaddr_in server_addr{};
@@ -355,13 +355,15 @@ int main() {
     std::thread receiver(receiveMessage, std::ref(sockfds), &user_info);
 
     std::vector<std::thread> threads;
-    // for(int i=0;i<sockfds.size();i++){
-    //     thread_sender1(sockfds[i],i);
-    // }
+
+    // 万点
+    for(int i=0;i<sockfds.size();i++){
+        thread_sender1(sockfds[i],i);
+    }
 
     // 多点
-    for(int i=0;i<4;i++)
-        threads.emplace_back(thread_sender, sockfds[i], i*2500);
+    //for(int i=0;i<4;i++)
+    //    threads.emplace_back(thread_sender, sockfds[i], i*2500);
 
 
     //sender.join();

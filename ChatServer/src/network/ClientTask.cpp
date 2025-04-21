@@ -43,6 +43,7 @@ void ClientTask::PROTOBUF_handle(){
     PROTOBUF_handleMessageType(msg.type(),_msg.substr(8)); 
 }
 
+// io_uring
 size_t ClientTask::submitSend(SendContext* ctx) {
     size_t remaining = ctx->data.size() - ctx->offset;
     if (remaining == 0) {
@@ -71,6 +72,31 @@ size_t ClientTask::submitSend(SendContext* ctx) {
     return 0;
 }
 
+// 线程阻塞发
+ssize_t ClientTask::sendAll(int sockfd, const char* data, size_t len) {
+    size_t totalSent = 0;
+    while (totalSent < len) {
+        ssize_t sent = send(sockfd, data + totalSent, len - totalSent, 0);
+        
+        if (sent == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                usleep(1000);  // 发送缓冲区满时，等待 1ms 再尝试
+                continue;
+            } else {
+                perror("send failed");
+                return -1;  // 发送失败
+            }
+        } else if (sent == 0) {
+            std::cerr << "连接关闭！" << std::endl;
+            return -1;
+        }
+
+        totalSent += sent;
+    }
+    return totalSent;
+}
+
+
 size_t ClientTask::PROTOBUF_sendAll(int sockfd, const std::string& serialized_data) {
     std::string msg;
 
@@ -82,8 +108,10 @@ size_t ClientTask::PROTOBUF_sendAll(int sockfd, const std::string& serialized_da
     msg.append(reinterpret_cast<char*>(&len), sizeof(len));
     msg.append(serialized_data);
 
-    SendContext* ctx = new SendContext(sockfd, msg);
-    return submitSend(ctx);  // 发起第一次发送
+    //SendContext* ctx = new SendContext(sockfd, msg);
+    //return submitSend(ctx);  // 发起第一次发送
+
+    return sendAll(sockfd, msg.data(), msg.size());
 }
 
 
