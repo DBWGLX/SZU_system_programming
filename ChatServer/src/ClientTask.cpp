@@ -20,7 +20,7 @@ void ClientTask::execute(DBOperation& dbop) {
         case PROTOBUF_KEY:
             PROTOBUF_handle();
             break; 
-        // 拓展其他字节流
+        // 拓展其他字节流处理协议
     }
 }
 
@@ -31,8 +31,7 @@ void ClientTask::PROTOBUF_handle(){
 
 
     debug_str("收到报文长度" + std::to_string(length));
-
-    debug_str("protobuf: " + _msg.substr(0,50)); // 防止日志过载
+    debug_str("protobuf: " + _msg.substr(0,50)); // 只展示部分信息，防止日志过载
 
     chat::ChatMessage msg; // 只用一下type字段
     if (!msg.ParseFromString(_msg.substr(8))) {
@@ -41,136 +40,6 @@ void ClientTask::PROTOBUF_handle(){
     }
 
     PROTOBUF_handleMessageType(msg.type(),_msg.substr(8)); 
-}
-
-// io_uring
-size_t ClientTask::submitSend(SendContext* ctx) {
-    size_t remaining = ctx->data.size() - ctx->offset;
-    if (remaining == 0) {
-        delete ctx; // 发送完毕，释放资源
-        return 0;
-    }
-
-    io_uring_sqe* sqe = io_uring_get_sqe(_ring);
-    if (!sqe) {
-        fatal_str("❌ 获取SQE失败！");
-        return -1;
-    }
-
-    // 发送时的指针
-    void* ptr = (void*)(ctx->data.data() + ctx->offset);
-    size_t len = remaining;
-
-    io_uring_prep_send(sqe, ctx->sockfd, ptr, len, 0);
-    io_uring_sqe_set_data(sqe, ctx); // 传回这个 ctx
-
-    if (io_uring_submit(_ring) < 0) {
-        fatal_str("❌ io_uring_submit 提交失败");
-        delete ctx;
-        return -1;
-    }
-    return 0;
-}
-
-// 线程阻塞发
-ssize_t ClientTask::sendAll(int sockfd, const char* data, size_t len) {
-    size_t totalSent = 0;
-    while (totalSent < len) {
-        ssize_t sent = send(sockfd, data + totalSent, len - totalSent, 0);
-        
-        if (sent == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                usleep(1000);  // 发送缓冲区满时，等待 1ms 再尝试
-                continue;
-            } else {
-                perror("send failed");
-                return -1;  // 发送失败
-            }
-        } else if (sent == 0) {
-            std::cerr << "连接关闭！" << std::endl;
-            return -1;
-        }
-
-        totalSent += sent;
-    }
-    return totalSent;
-}
-
-
-size_t ClientTask::PROTOBUF_sendAll(int sockfd, const std::string& serialized_data) {
-    std::string msg;
-
-    // 打包成 KLV 格式
-    uint32_t key = htonl(PROTOBUF_KEY);
-    uint32_t len = htonl(serialized_data.size());
-
-    msg.append(reinterpret_cast<char*>(&key), sizeof(key));
-    msg.append(reinterpret_cast<char*>(&len), sizeof(len));
-    msg.append(serialized_data);
-
-    //SendContext* ctx = new SendContext(sockfd, msg);
-    //return submitSend(ctx);  // 发起第一次发送
-
-    return sendAll(sockfd, msg.data(), msg.size());
-}
-
-
-ssize_t ClientTask::PROTOBUF_sendResult(int sockfd, int type, const char* message){
-    chat::Response msg;
-    msg.set_type(type);
-    msg.set_message(message);
-
-    //序列化
-    std::string serialized_data;
-    if(!msg.SerializeToString(&serialized_data)){
-        fatal_str("Protobuf 序列化失败！");
-        return -1;
-    }
-    return PROTOBUF_sendAll(sockfd, serialized_data);
-}
-ssize_t ClientTask::PROTOBUF_sendLoginResult(int sockfd, std::string& username, std::string& token){
-    chat::LoginResponse msg;
-    msg.set_type(2001);
-    msg.set_username(username);
-    msg.set_token(token);
-
-    //序列化
-    std::string serialized_data;
-    if(!msg.SerializeToString(&serialized_data)){
-        fatal_str("Protobuf 序列化失败！");
-        return -1;
-    }
-    return PROTOBUF_sendAll(sockfd, serialized_data);
-}
-ssize_t ClientTask::PROTOBUF_sendUsersInfo(int sockfd, const std::vector<std::pair<std::string, std::string>>& users) {
-    chat::GetOnlineUsersResponse response;
-    response.set_type(3001); 
-
-    for(auto&x:users){
-        chat::UserInfo* user1 = response.add_users();
-        user1->set_name(x.first);
-        user1->set_account(x.second);
-    }
-
-    std::string serialized_data;
-    if(!response.SerializeToString(&serialized_data)){
-        fatal_str("Protobuf 序列化失败！");
-        return -1;
-    }
-    return PROTOBUF_sendAll(sockfd, serialized_data);
-}
-ssize_t ClientTask::PROTOBUF_sendChatMessage(int sockfd, const std::string& account, const std::string& message){
-    chat::ReceivedMessage response;
-    response.set_type(4010);
-    response.set_account(account);
-    response.set_message(message);
-
-    std::string serialized_data;
-    if(!response.SerializeToString(&serialized_data)){
-        fatal_str("Protobuf 序列化失败！");
-        return -1;
-    }
-    return PROTOBUF_sendAll(sockfd, serialized_data);
 }
 
 void ClientTask::PROTOBUF_handleMessageType(int type, const std::string& msg) {
@@ -313,6 +182,137 @@ void ClientTask::PROTOBUF_handleType5(const std::string& received_data){
 
     PROTOBUF_sendResult(_clientFd, 5001, "success");
     freeFd();
+}
+
+
+// io_uring
+size_t ClientTask::submitSend(SendContext* ctx) {
+    size_t remaining = ctx->data.size() - ctx->offset;
+    if (remaining == 0) {
+        delete ctx; // 发送完毕，释放资源
+        return 0;
+    }
+
+    io_uring_sqe* sqe = io_uring_get_sqe(_ring);
+    if (!sqe) {
+        fatal_str("❌ 获取SQE失败！");
+        return -1;
+    }
+
+    // 发送时的指针
+    void* ptr = (void*)(ctx->data.data() + ctx->offset);
+    size_t len = remaining;
+
+    io_uring_prep_send(sqe, ctx->sockfd, ptr, len, 0);
+    io_uring_sqe_set_data(sqe, ctx); // 传回这个 ctx
+
+    if (io_uring_submit(_ring) < 0) {
+        fatal_str("❌ io_uring_submit 提交失败");
+        delete ctx;
+        return -1;
+    }
+    return 0;
+}
+
+// 线程阻塞发
+ssize_t ClientTask::sendAll(int sockfd, const char* data, size_t len) {
+    size_t totalSent = 0;
+    while (totalSent < len) {
+        ssize_t sent = send(sockfd, data + totalSent, len - totalSent, 0);
+        
+        if (sent == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                usleep(1000);  // 发送缓冲区满时，等待 1ms 再尝试
+                continue;
+            } else {
+                perror("send failed");
+                return -1;  // 发送失败
+            }
+        } else if (sent == 0) {
+            std::cerr << "连接关闭！" << std::endl;
+            return -1;
+        }
+
+        totalSent += sent;
+    }
+    return totalSent;
+}
+
+
+size_t ClientTask::PROTOBUF_sendAll(int sockfd, const std::string& serialized_data) {
+    std::string msg;
+
+    // 打包成 KLV 格式
+    uint32_t key = htonl(PROTOBUF_KEY);
+    uint32_t len = htonl(serialized_data.size());
+
+    msg.append(reinterpret_cast<char*>(&key), sizeof(key));
+    msg.append(reinterpret_cast<char*>(&len), sizeof(len));
+    msg.append(serialized_data);
+
+    //SendContext* ctx = new SendContext(sockfd, msg);
+    //return submitSend(ctx);  // 发起第一次发送
+
+    return sendAll(sockfd, msg.data(), msg.size());
+}
+
+
+ssize_t ClientTask::PROTOBUF_sendResult(int sockfd, int type, const char* message){
+    chat::Response msg;
+    msg.set_type(type);
+    msg.set_message(message);
+
+    //序列化
+    std::string serialized_data;
+    if(!msg.SerializeToString(&serialized_data)){
+        fatal_str("Protobuf 序列化失败！");
+        return -1;
+    }
+    return PROTOBUF_sendAll(sockfd, serialized_data);
+}
+ssize_t ClientTask::PROTOBUF_sendLoginResult(int sockfd, std::string& username, std::string& token){
+    chat::LoginResponse msg;
+    msg.set_type(2001);
+    msg.set_username(username);
+    msg.set_token(token);
+
+    //序列化
+    std::string serialized_data;
+    if(!msg.SerializeToString(&serialized_data)){
+        fatal_str("Protobuf 序列化失败！");
+        return -1;
+    }
+    return PROTOBUF_sendAll(sockfd, serialized_data);
+}
+ssize_t ClientTask::PROTOBUF_sendUsersInfo(int sockfd, const std::vector<std::pair<std::string, std::string>>& users) {
+    chat::GetOnlineUsersResponse response;
+    response.set_type(3001); 
+
+    for(auto&x:users){
+        chat::UserInfo* user1 = response.add_users();
+        user1->set_name(x.first);
+        user1->set_account(x.second);
+    }
+
+    std::string serialized_data;
+    if(!response.SerializeToString(&serialized_data)){
+        fatal_str("Protobuf 序列化失败！");
+        return -1;
+    }
+    return PROTOBUF_sendAll(sockfd, serialized_data);
+}
+ssize_t ClientTask::PROTOBUF_sendChatMessage(int sockfd, const std::string& account, const std::string& message){
+    chat::ReceivedMessage response;
+    response.set_type(4010);
+    response.set_account(account);
+    response.set_message(message);
+
+    std::string serialized_data;
+    if(!response.SerializeToString(&serialized_data)){
+        fatal_str("Protobuf 序列化失败！");
+        return -1;
+    }
+    return PROTOBUF_sendAll(sockfd, serialized_data);
 }
 
 //

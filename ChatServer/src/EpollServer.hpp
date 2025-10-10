@@ -1,3 +1,7 @@
+/*
+
+
+*/
 #pragma once
 #include <iostream>
 #include <string>
@@ -24,18 +28,23 @@ class EpollServer {
 public:
     EpollServer(std::atomic<bool>& interrupted);
     ~EpollServer();
-    void work();
+    void work();//运行逻辑
 
 private:
+    //服务标识
     void initSocket();
     int serverFd;
     int epollFd;
+
+    //线程池逻辑
     std::unique_ptr<ThreadPool> threadPool;
 
+    //缓存设计
     LRUTokenManager _LRUm;
+    //服务停止
     std::atomic<bool>& _interrupted;
 
-    //update
+    //io_uring操作
     io_uring ring;
     void submitAccept(AcceptContext* ctx);
     void submitRead(int clientFd, ReadContext* ctx);
